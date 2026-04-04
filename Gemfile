@@ -35,8 +35,8 @@ gem "image_processing", "~> 1.2"
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 
-# HTTP client for Gemini API
-gem "faraday"
+# Gemini API client
+gem "ruby-gemini-api"
 
 # Background job processing
 gem "sidekiq", "~> 7.0"
