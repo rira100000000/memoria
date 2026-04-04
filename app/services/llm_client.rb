@@ -1,10 +1,9 @@
-require "faraday"
-require "json"
+require "gemini"
 
 # Gemini API 呼び出しをラップするクライアント
+# ruby-gemini-api gem を使用
 # Function Calling 対応
 class LlmClient
-  GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
   EMBEDDING_MODEL = "gemini-embedding-001"
 
   attr_reader :main_model, :light_model
@@ -17,21 +16,14 @@ class LlmClient
     thinking_budget: ENV.fetch("GEMINI_THINKING_BUDGET", "0").to_i,
     usage_tracker: nil
   )
-    @api_key = api_key
     @main_model = main_model
     @light_model = light_model || main_model
     @thinking_budget = thinking_budget
     @usage_tracker = usage_tracker
-    @conn = Faraday.new(url: GEMINI_BASE_URL) do |f|
-      f.request :json
-      f.response :json
-      f.adapter Faraday.default_adapter
-      f.options.timeout = 120
-      f.options.open_timeout = 10
-    end
+    @client = Gemini::Client.new(api_key)
   end
 
-  # テキスト生成
+  # テキスト生成（シンプルなプロンプト）
   # @param prompt [String] プロンプト
   # @param tier [Symbol] :main or :light
   # @param system_instruction [String, nil] システムインストラクション
@@ -39,10 +31,16 @@ class LlmClient
   # @return [Hash] { text:, function_calls:, usage: }
   def generate(prompt, tier: :main, system_instruction: nil, tools: nil)
     model = tier == :light ? @light_model : @main_model
-    body = build_generate_body(prompt, system_instruction: system_instruction, tools: tools)
+    params = {
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      model: model,
+    }
+    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:tools] = tools if tools
+    apply_thinking_config!(params)
 
-    response = @conn.post("/v1beta/models/#{model}:generateContent?key=#{@api_key}", body)
-    result = parse_generate_response(response)
+    response = @client.chat(parameters: params)
+    result = parse_response(response, model)
     track_usage(model, result[:usage])
     result
   end
@@ -54,22 +52,22 @@ class LlmClient
   # @return [Hash] { text:, function_calls:, usage: }
   def chat(messages, system_instruction: nil, tools: nil)
     model = @main_model
-    body = { contents: messages }
-    body[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
-    body[:tools] = tools if tools
-    if @thinking_budget > 0
-      body[:generationConfig] = { thinkingConfig: { thinkingBudget: @thinking_budget } }
-    end
+    params = {
+      contents: messages,
+      model: model,
+    }
+    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:tools] = tools if tools
+    apply_thinking_config!(params)
 
-    response = @conn.post("/v1beta/models/#{model}:generateContent?key=#{@api_key}", body)
-    result = parse_generate_response(response)
+    response = @client.chat(parameters: params)
+    result = parse_response(response, model)
     track_usage(model, result[:usage])
     result
   end
 
   # Function Calling の結果を送り返して継続生成
   def send_function_response(messages, function_responses, system_instruction: nil, tools: nil)
-    # function_responses: [{ name:, response: { ... } }]
     tool_response_content = {
       role: "user",
       parts: function_responses.map { |fr|
@@ -82,18 +80,16 @@ class LlmClient
 
   # Embedding 生成
   def embed(text)
-    body = {
-      model: "models/#{EMBEDDING_MODEL}",
+    response = @client.embeddings(parameters: {
+      model: EMBEDDING_MODEL,
       content: { parts: [{ text: text }] },
-    }
-    response = @conn.post("/v1beta/models/#{EMBEDDING_MODEL}:embedContent?key=#{@api_key}", body)
-    data = response.body
-    raise "Embedding API error: #{data['error']&.dig('message') || response.status}" if data["error"]
-    data.dig("embedding", "values") || []
+    })
+    raise "Embedding API error: #{response.error}" if response.error
+    response.raw_data.dig("embedding", "values") || []
   end
 
   def available?
-    @api_key.present?
+    @client.present?
   end
 
   def embedding_available?
@@ -102,48 +98,34 @@ class LlmClient
 
   private
 
+  def apply_thinking_config!(params)
+    if @thinking_budget > 0
+      params[:generationConfig] ||= {}
+      params[:generationConfig][:thinkingConfig] = { thinkingBudget: @thinking_budget }
+    end
+  end
+
   def track_usage(model, usage)
     @usage_tracker&.call(model, usage)
   end
 
-  def build_generate_body(prompt, system_instruction: nil, tools: nil)
-    body = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    }
-    body[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
-    body[:tools] = tools if tools
-    if @thinking_budget > 0
-      body[:generationConfig] = { thinkingConfig: { thinkingBudget: @thinking_budget } }
-    end
-    body
-  end
+  def parse_response(response, model)
+    raise "Gemini API error: #{response.error}" if response.error
+    raise "Gemini API returned no candidates" unless response.valid?
 
-  def parse_generate_response(response)
-    data = response.body
-    if data["error"]
-      raise "Gemini API error: #{data['error']['message']} (#{data['error']['code']})"
-    end
-
-    candidate = data.dig("candidates", 0)
-    unless candidate
-      raise "Gemini API returned no candidates"
-    end
-
-    parts = candidate.dig("content", "parts") || []
-    text_parts = parts.select { |p| p["text"] }.map { |p| p["text"] }
-    function_calls = parts.select { |p| p["functionCall"] }.map { |p|
-      { name: p["functionCall"]["name"], args: p["functionCall"]["args"] }
+    fc = response.function_calls.map { |fc_data|
+      { name: fc_data["name"], args: fc_data["args"] }
     }
 
-    usage = data["usageMetadata"] || {}
+    usage_meta = response.raw_data["usageMetadata"] || {}
 
     {
-      text: text_parts.join(""),
-      function_calls: function_calls,
+      text: response.text || "",
+      function_calls: fc,
       usage: {
-        input_tokens: usage["promptTokenCount"],
-        output_tokens: usage["candidatesTokenCount"],
-        total_tokens: usage["totalTokenCount"],
+        input_tokens: usage_meta["promptTokenCount"] || 0,
+        output_tokens: usage_meta["candidatesTokenCount"] || 0,
+        total_tokens: usage_meta["totalTokenCount"] || 0,
       },
     }
   end
