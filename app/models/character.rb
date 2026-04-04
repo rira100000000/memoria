@@ -1,6 +1,5 @@
 class Character < ApplicationRecord
   belongs_to :user
-  has_many :pending_messages, dependent: :destroy
 
   validates :name, presence: true
 

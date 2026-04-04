@@ -40,7 +40,6 @@ gem "ruby-gemini-api"
 
 # Background job processing
 gem "sidekiq", "~> 7.0"
-gem "sidekiq-scheduler", "~> 5.0"
 
 # Environment variables
 gem "dotenv-rails", groups: [:development, :test]
