@@ -9,16 +9,19 @@ class LlmClient
 
   attr_reader :main_model, :light_model
 
+  # usage_tracker: lambda { |model, usage| ... } — 呼び出し後にAPI使用量を通知するコールバック
   def initialize(
     api_key: ENV.fetch("GEMINI_API_KEY"),
     main_model: ENV.fetch("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20"),
     light_model: ENV.fetch("GEMINI_LIGHT_MODEL", nil),
-    thinking_budget: ENV.fetch("GEMINI_THINKING_BUDGET", "0").to_i
+    thinking_budget: ENV.fetch("GEMINI_THINKING_BUDGET", "0").to_i,
+    usage_tracker: nil
   )
     @api_key = api_key
     @main_model = main_model
     @light_model = light_model || main_model
     @thinking_budget = thinking_budget
+    @usage_tracker = usage_tracker
     @conn = Faraday.new(url: GEMINI_BASE_URL) do |f|
       f.request :json
       f.response :json
@@ -39,7 +42,9 @@ class LlmClient
     body = build_generate_body(prompt, system_instruction: system_instruction, tools: tools)
 
     response = @conn.post("/v1beta/models/#{model}:generateContent?key=#{@api_key}", body)
-    parse_generate_response(response)
+    result = parse_generate_response(response)
+    track_usage(model, result[:usage])
+    result
   end
 
   # チャット形式での生成（メッセージ履歴付き）
@@ -57,7 +62,9 @@ class LlmClient
     end
 
     response = @conn.post("/v1beta/models/#{model}:generateContent?key=#{@api_key}", body)
-    parse_generate_response(response)
+    result = parse_generate_response(response)
+    track_usage(model, result[:usage])
+    result
   end
 
   # Function Calling の結果を送り返して継続生成
@@ -94,6 +101,10 @@ class LlmClient
   end
 
   private
+
+  def track_usage(model, usage)
+    @usage_tracker&.call(model, usage)
+  end
 
   def build_generate_body(prompt, system_instruction: nil, tools: nil)
     body = {

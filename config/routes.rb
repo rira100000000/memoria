@@ -6,5 +6,7 @@ Rails.application.routes.draw do
       post :chat, on: :member, to: "chats#create"
       post :reset, on: :member, to: "chats#reset"
     end
+
+    resources :chat_results, only: [:show]
   end
 end

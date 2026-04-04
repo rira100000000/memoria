@@ -4,9 +4,11 @@ class ChatSession
   # messages: [{ role: "user"/"model", content: "..." }]
   attr_reader :messages, :character, :chat_logger
 
-  def initialize(character, llm_client: nil)
+  def initialize(character, llm_client: nil, trigger_type: "user_message")
     @character = character
-    @llm_client = llm_client || LlmClient.new
+    @trigger_type = trigger_type
+    tracker = build_usage_tracker
+    @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
     @messages = []
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
     @vault.ensure_structure!
@@ -79,11 +81,14 @@ class ChatSession
   end
 
   # チャットリセット（振り返り生成 + セッションクリア）
+  # @return [Hash, nil] { file_path:, base_name:, tags:, full_log_path: }
   def reset!
     reflection_result = nil
+    full_log_path = @chat_logger.current_log_path
 
-    if @messages.length > 1 && @chat_logger.current_log_path
+    if @messages.length > 1 && full_log_path
       reflection_result = generate_reflection
+      reflection_result[:full_log_path] = full_log_path if reflection_result
     end
 
     @chat_logger.reset!
@@ -95,6 +100,24 @@ class ChatSession
   end
 
   private
+
+  def build_usage_tracker
+    character = @character
+    trigger_type = @trigger_type
+    lambda { |model, usage|
+      begin
+        ApiUsageLog.record!(
+          user: character.user,
+          character: character,
+          trigger_type: trigger_type,
+          llm_model: model,
+          usage: usage
+        )
+      rescue => e
+        Rails.logger.warn("[ChatSession] Usage tracking failed: #{e.message}") if defined?(Rails)
+      end
+    }
+  end
 
   def llm_role_name
     @character.name
@@ -190,31 +213,15 @@ class ChatSession
     )
 
     # Embedding更新
+    sn_relative_path = sn_store.path_for("#{sn_base}.md")
     sn_content = MemoriaCore::Frontmatter.build(sn_fm, sn_body)
     @embedding_store.embed_and_store(
-      sn_store.path_for("#{sn_base}.md"), sn_content, "SN",
+      sn_relative_path, sn_content, "SN",
       { title: parsed["conversationTitle"], tags: tags }
     )
 
-    # タグプロファイリング
-    tag_profiler = MemoriaCore::TagProfiler.new(@vault, @llm_client, {
-      llm_role_name: llm_role_name,
-      system_prompt: @character.system_prompt,
-    })
-    tag_profiler.process_summary_note(sn_store.path_for("#{sn_base}.md"))
-
-    # 更新されたTPNのEmbedding更新
-    tags.each do |tag|
-      tpn_store = MemoriaCore::TpnStore.new(@vault)
-      tpn_content = tpn_store.read_raw(tag)
-      next unless tpn_content
-      @embedding_store.embed_and_store(
-        tpn_store.path_for(tag), tpn_content, "TPN",
-        { title: tag, tags: [tag] }
-      )
-    end
-
-    { file_path: sn_store.path_for("#{sn_base}.md"), base_name: sn_base, tags: tags }
+    # タグプロファイリングはTagProfilingWorkerに委譲（非同期）
+    { file_path: sn_relative_path, base_name: sn_base, tags: tags }
   rescue => e
     Rails.logger.error("[ChatSession] Reflection failed: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}") if defined?(Rails)
     nil

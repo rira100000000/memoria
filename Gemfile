@@ -38,6 +38,9 @@ gem "rack-cors"
 # HTTP client for Gemini API
 gem "faraday"
 
+# Background job processing
+gem "sidekiq", "~> 7.0"
+
 # Environment variables
 gem "dotenv-rails", groups: [:development, :test]
 
