@@ -84,8 +84,11 @@ class LlmClient
       model: EMBEDDING_MODEL,
       content: { parts: [{ text: text }] },
     })
-    raise "Embedding API error: #{response.error}" if response.error
-    response.raw_data.dig("embedding", "values") || []
+    data = response.raw_data
+    if data&.dig("error")
+      raise "Embedding API error: #{data.dig('error', 'message')}"
+    end
+    data&.dig("embedding", "values") || []
   end
 
   def available?
