@@ -5,6 +5,7 @@ Rails.application.routes.draw do
     resources :characters, only: [:index, :show, :create, :update, :destroy] do
       post :chat, on: :member, to: "chats#create"
       post :reset, on: :member, to: "chats#reset"
+      post :summarize, on: :member, to: "summarize#create"
     end
 
     resources :chat_results, only: [:show]

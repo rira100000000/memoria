@@ -87,8 +87,28 @@ class ChatSession
     full_log_path = @chat_logger.current_log_path
 
     if @messages.length > 1 && full_log_path
-      reflection_result = generate_reflection
-      reflection_result[:full_log_path] = full_log_path if reflection_result
+      conversation_text = @messages.map { |m|
+        speaker = m[:role] == "user" ? "User" : llm_role_name
+        "#{speaker}: #{m[:content]}"
+      }.join("\n\n")
+
+      service = ReflectionService.new(@character, llm_client: @llm_client)
+      timestamp = MemoriaCore::FlStore.extract_timestamp(@chat_logger.log_file_name || "")
+      reflection_result = service.generate(
+        conversation_text: conversation_text,
+        full_log_ref: @chat_logger.log_file_name || "",
+        timestamp: timestamp
+      )
+
+      if reflection_result
+        reflection_result[:full_log_path] = full_log_path
+
+        # FullLogのfrontmatter更新
+        @chat_logger.update_frontmatter(
+          "title" => File.basename(reflection_result[:base_name]).sub(/\ASN-\d+-/, "").tr("_", " "),
+          "summary_note" => "[[#{reflection_result[:base_name]}.md]]"
+        )
+      end
     end
 
     @chat_logger.reset!
@@ -167,112 +187,8 @@ class ChatSession
     body.strip.empty? ? "まだ原則は定められていない。" : body
   end
 
-  # --- 振り返り生成（ReflectionEngine相当） ---
-
-  def generate_reflection
-    formatted = @messages.map { |m|
-      speaker = m[:role] == "user" ? "User" : llm_role_name
-      "#{speaker}: #{m[:content]}"
-    }.join("\n\n")
-
-    prompt = build_reflection_prompt(formatted)
-    result = @llm_client.generate(prompt)
-
-    parsed = parse_reflection_response(result[:text])
-    return nil unless parsed
-
-    # SN 保存
-    timestamp = MemoriaCore::FlStore.extract_timestamp(@chat_logger.log_file_name || "")
-    sn_base = MemoriaCore::SnStore.build_base_name(timestamp, parsed["conversationTitle"])
-    tags = [llm_role_name] + extract_tags(parsed["reflectionBody"]) + (parsed["tags"] || [])
-    tags = tags.uniq
-
-    semantic_defs = (parsed["semanticDefinitions"] || []).select { |d| d["tag"] && d["definition"] && !d["definition"].strip.empty? }
-
-    sn_fm = MemoriaCore::SnStore.build_frontmatter(
-      title: parsed["conversationTitle"],
-      llm_role_name: llm_role_name,
-      tags: tags,
-      full_log_ref: @chat_logger.log_file_name || "",
-      mood: parsed["mood"],
-      key_takeaways: parsed["keyTakeaways"],
-      action_items: parsed["actionItems"],
-      semantic_definitions: semantic_defs
-    )
-
-    body_content = parsed["reflectionBody"].gsub('\n', "\n")
-    sn_body = "# #{parsed['conversationTitle']} (by #{llm_role_name})\n\n#{body_content}\n"
-
-    sn_store = MemoriaCore::SnStore.new(@vault)
-    sn_store.save("#{sn_base}.md", sn_fm, sn_body)
-
-    # FullLogのfrontmatter更新
-    @chat_logger.update_frontmatter(
-      "title" => parsed["conversationTitle"],
-      "summary_note" => "[[#{sn_base}.md]]"
-    )
-
-    # Embedding更新
-    sn_relative_path = sn_store.path_for("#{sn_base}.md")
-    sn_content = MemoriaCore::Frontmatter.build(sn_fm, sn_body)
-    @embedding_store.embed_and_store(
-      sn_relative_path, sn_content, "SN",
-      { title: parsed["conversationTitle"], tags: tags }
-    )
-
-    # タグプロファイリングはTagProfilingWorkerに委譲（非同期）
-    { file_path: sn_relative_path, base_name: sn_base, tags: tags }
-  rescue => e
-    Rails.logger.error("[ChatSession] Reflection failed: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}") if defined?(Rails)
-    nil
-  end
-
-  def build_reflection_prompt(formatted_history)
-    <<~PROMPT
-      あなたは、以下のキャラクター設定を持つ #{llm_role_name} です。
-      このキャラクター設定を完全に理解し、そのペルソナとして振る舞ってください。
-
-      あなたのキャラクター設定:
-      ---
-      #{@character.system_prompt}
-      ---
-
-      たった今、ユーザーとの以下の会話を終えました。この会話全体を振り返り、以下の指示に従って情報を整理してください。
-
-      会話履歴:
-      ---
-      #{formatted_history}
-      ---
-
-      以下のJSONオブジェクトの各フィールドを記述してください。
-      ```json
-      {
-        "conversationTitle": "この会話にふさわしい簡潔なタイトル（10語以内）",
-        "tags": [],
-        "mood": "会話全体の雰囲気を表す言葉",
-        "keyTakeaways": ["重要な結論や決定事項を1～3点"],
-        "actionItems": ["User: アクション", "#{llm_role_name}: アクション"],
-        "reflectionBody": "## その日の会話のテーマ\\n\\n## 特に印象に残った発言\\n\\n## 新しい発見や気づき\\n\\n## 感情の変化\\n\\n## 今後の課題や目標\\n\\n## 自由形式での感想\\n",
-        "semanticDefinitions": [{"tag": "概念名", "definition": "ユーザーが説明した定義"}]
-      }
-      ```
-      JSONオブジェクトのみを返し、他のテキストは含めないでください。
-    PROMPT
-  end
-
-  def parse_reflection_response(text)
-    json_match = text.match(/```json\s*(.*?)\s*```/m)
-    json_str = json_match ? json_match[1] : text
-    JSON.parse(json_str)
-  rescue JSON::ParserError
-    nil
-  end
-
-  def extract_tags(text)
-    return [] unless text
-    # シンプルなタグ抽出（LLM呼び出しを省略、Phase2以降で改善）
-    []
-  end
+  # generate_reflection, build_reflection_prompt, parse_reflection_response は
+  # ReflectionService に移動済み
 
   # --- Function Calling ---
 
