@@ -15,6 +15,11 @@ module MemoriaCore
       @current_log_path = @fl_store.create(@llm_role_name)
     end
 
+    # 既存のログパスを復元（セッション再開時に使用）
+    def restore!(log_path)
+      @current_log_path = log_path
+    end
+
     # ユーザーメッセージを記録
     def log_user_message(content)
       return unless @current_log_path

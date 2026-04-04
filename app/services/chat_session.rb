@@ -31,6 +31,8 @@ class ChatSession
     @embedding_store.initialize!
     @context_retriever = MemoriaCore::ContextRetriever.new(@vault, @embedding_store)
     @chat_logger = MemoriaCore::ChatLogger.new(@vault, llm_role_name)
+    # DB上にログパスがあれば復元（セッション再開時に新しいFLを作らないようにする）
+    @chat_logger.restore!(@record.full_log_path) if @record.full_log_path
     @prompt_builder = PromptBuilder.new(character)
   end
 
