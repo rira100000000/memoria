@@ -51,6 +51,12 @@ group :development, :test do
   # MCP server for Rails console debugging via Claude
   gem "girb-mcp"
 
+  # Testing
+  gem "rspec-rails", "~> 7.0"
+  gem "factory_bot_rails"
+  gem "webmock"
+  gem "rspec-sidekiq"
+
   # Audits gems for known security defects (use config/bundler-audit.yml to ignore issues)
   gem "bundler-audit", require: false
 
