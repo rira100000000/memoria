@@ -56,6 +56,11 @@ module MemoriaCore
       @vault.delete(relative_path)
     end
 
+    # 全FLファイルパスを返す
+    def list
+      @vault.list_markdown_files(FL_DIR)
+    end
+
     # ログファイル名からタイムスタンプ部分（12桁）を抽出
     def self.extract_timestamp(file_name)
       base = File.basename(file_name, ".md")

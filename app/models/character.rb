@@ -1,5 +1,6 @@
 class Character < ApplicationRecord
   belongs_to :user
+  has_many :chat_session_records, dependent: :destroy
 
   validates :name, presence: true
 
