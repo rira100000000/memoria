@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "girb-mcp": {
+      "command": "bash",
+      "args": ["-c", "cd /home/rira/rira100000000/memoria/memoria && bundle exec girb-mcp"]
+    }
+  }
+}
