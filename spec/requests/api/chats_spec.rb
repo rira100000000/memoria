@@ -62,7 +62,7 @@ RSpec.describe "Api::Chats", type: :request do
 
       before do
         mock_session = instance_double(ChatSession, send_message: mock_result)
-        allow(ChatSession).to receive(:new).and_return(mock_session)
+        allow(ChatSession).to receive(:find_or_create).and_return(mock_session)
       end
 
       it "returns response inline" do

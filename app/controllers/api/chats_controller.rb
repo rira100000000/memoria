@@ -4,7 +4,7 @@ module Api
 
     # POST /api/characters/:character_id/chat
     # async (default): returns 202 + job_id for polling
-    # sync: pass ?sync=true to get response inline (for simple clients)
+    # sync: pass ?sync=true to get response inline
     def create
       message = params[:message]
       return render json: { error: "message is required" }, status: :bad_request if message.blank?
@@ -21,15 +21,12 @@ module Api
 
     # POST /api/characters/:character_id/reset
     def reset
-      session = find_session
+      session = ChatSession.find_active(@character, current_user)
       if session
         reflection = session.reset!
-        remove_session
 
         if reflection
-          # タグプロファイリングを非同期実行
           TagProfilingWorker.perform_async(@character.id, reflection[:file_path])
-          # 記憶検証（睡眠フェーズ）を非同期実行
           SleepPhaseWorker.perform_async(@character.id, reflection[:full_log_path]) if reflection[:full_log_path]
         end
 
@@ -45,7 +42,7 @@ module Api
     private
 
     def create_sync(message)
-      session = find_or_create_session
+      session = ChatSession.find_or_create(@character, current_user)
       result = session.send_message(message)
 
       render json: {
@@ -77,24 +74,6 @@ module Api
       @character = current_user.characters.find(params[:id])
     rescue ActiveRecord::RecordNotFound
       render json: { error: "Character not found" }, status: :not_found
-    end
-
-    def session_key
-      "chat_session_#{current_user.id}_#{@character.id}"
-    end
-
-    def find_or_create_session
-      ChatSessionStore.instance.fetch(session_key) do
-        ChatSession.new(@character)
-      end
-    end
-
-    def find_session
-      ChatSessionStore.instance.get(session_key)
-    end
-
-    def remove_session
-      ChatSessionStore.instance.delete(session_key)
     end
   end
 end

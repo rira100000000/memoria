@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_153224) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_153446) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -60,6 +60,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_153224) do
     t.index ["user_id"], name: "index_chat_results_on_user_id"
   end
 
+  create_table "chat_sessions", force: :cascade do |t|
+    t.bigint "character_id", null: false
+    t.datetime "created_at", null: false
+    t.string "full_log_path"
+    t.datetime "last_message_at"
+    t.jsonb "messages", default: [], null: false
+    t.string "pending_timeout_job_id"
+    t.string "status", default: "active", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["character_id", "user_id", "status"], name: "index_chat_sessions_on_character_id_and_user_id_and_status"
+    t.index ["character_id"], name: "index_chat_sessions_on_character_id"
+    t.index ["user_id"], name: "index_chat_sessions_on_user_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "api_token", null: false
     t.datetime "created_at", null: false
@@ -75,4 +90,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_153224) do
   add_foreign_key "characters", "users"
   add_foreign_key "chat_results", "characters"
   add_foreign_key "chat_results", "users"
+  add_foreign_key "chat_sessions", "characters"
+  add_foreign_key "chat_sessions", "users"
 end

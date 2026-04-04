@@ -18,7 +18,7 @@ RSpec.describe ChatWorker, type: :worker do
     end
 
     before do
-      allow(ChatSession).to receive(:new).and_return(mock_session)
+      allow(ChatSession).to receive(:find_or_create).and_return(mock_session)
     end
 
     it "completes the chat result on success" do

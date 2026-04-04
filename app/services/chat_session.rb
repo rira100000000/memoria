@@ -1,15 +1,30 @@
 # 会話セッションの管理
-# インメモリでメッセージ履歴を保持し、記憶検索→プロンプト構築→LLM呼び出し→ログ記録を統合
+# DB永続化されたメッセージ履歴を使い、記憶検索→プロンプト構築→LLM呼び出し→ログ記録を統合
 class ChatSession
-  # messages: [{ role: "user"/"model", content: "..." }]
-  attr_reader :messages, :character, :chat_logger
+  attr_reader :character, :chat_logger
 
-  def initialize(character, llm_client: nil, trigger_type: "user_message")
+  # ChatSessionRecordから復元 or 新規作成
+  def self.find_or_create(character, user)
+    record = ChatSessionRecord.active
+      .find_or_create_by!(character: character, user: user) do |r|
+        r.status = "active"
+        r.messages = []
+      end
+    new(character, record: record)
+  end
+
+  def self.find_active(character, user)
+    record = ChatSessionRecord.active.find_by(character: character, user: user)
+    return nil unless record
+    new(character, record: record)
+  end
+
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message")
     @character = character
+    @record = record
     @trigger_type = trigger_type
     tracker = build_usage_tracker
     @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
-    @messages = []
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
     @vault.ensure_structure!
     @embedding_store = MemoriaCore::EmbeddingStore.new(@vault, @llm_client)
@@ -17,17 +32,24 @@ class ChatSession
     @context_retriever = MemoriaCore::ContextRetriever.new(@vault, @embedding_store)
     @chat_logger = MemoriaCore::ChatLogger.new(@vault, llm_role_name)
     @prompt_builder = PromptBuilder.new(character)
-    @narrative_summary = ""
-    @first_message = true
+  end
+
+  def messages
+    @record.messages.map { |m| m.symbolize_keys }
+  end
+
+  def record
+    @record
   end
 
   # ユーザーメッセージを受けてAI応答を生成
   def send_message(user_message)
     # ログファイルが未作成なら作成
     @chat_logger.setup! unless @chat_logger.current_log_path
+    @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
 
     # ユーザーメッセージを記録
-    @messages << { role: "user", content: user_message }
+    @record.append_message("user", user_message)
     @chat_logger.log_user_message(user_message)
 
     # コンテキスト取得（記憶検索）
@@ -37,8 +59,8 @@ class ChatSession
     system_instruction = @prompt_builder.build(context: context)
 
     # Gemini API 用メッセージ構築
-    gemini_messages = @messages.map do |m|
-      { role: m[:role] == "user" ? "user" : "model", parts: [{ text: m[:content] }] }
+    gemini_messages = @record.messages.map do |m|
+      { role: m["role"] == "user" ? "user" : "model", parts: [{ text: m["content"] }] }
     end
 
     # LLM呼び出し（Function Calling対応のツール定義）
@@ -47,7 +69,6 @@ class ChatSession
 
     # Function Call がある場合はループ処理
     while result[:function_calls]&.any?
-      # 直前のmodel応答をメッセージ履歴に追加
       model_parts = []
       model_parts << { text: result[:text] } if result[:text] && !result[:text].empty?
       result[:function_calls].each do |fc|
@@ -55,7 +76,6 @@ class ChatSession
       end
       gemini_messages << { role: "model", parts: model_parts }
 
-      # ツール実行
       function_responses = result[:function_calls].map do |fc|
         tool_result = execute_tool(fc[:name], fc[:args])
         { name: fc[:name], response: tool_result }
@@ -70,9 +90,8 @@ class ChatSession
     ai_response = result[:text]
 
     # AI応答を記録
-    @messages << { role: "model", content: ai_response }
+    @record.append_message("model", ai_response)
     @chat_logger.log_ai_message(ai_response)
-    @first_message = false
 
     {
       response: ai_response,
@@ -84,12 +103,12 @@ class ChatSession
   # @return [Hash, nil] { file_path:, base_name:, tags:, full_log_path: }
   def reset!
     reflection_result = nil
-    full_log_path = @chat_logger.current_log_path
+    full_log_path = @record.full_log_path || @chat_logger.current_log_path
 
-    if @messages.length > 1 && full_log_path
-      conversation_text = @messages.map { |m|
-        speaker = m[:role] == "user" ? "User" : llm_role_name
-        "#{speaker}: #{m[:content]}"
+    if @record.message_count > 1 && full_log_path
+      conversation_text = @record.messages.map { |m|
+        speaker = m["role"] == "user" ? "User" : llm_role_name
+        "#{speaker}: #{m["content"]}"
       }.join("\n\n")
 
       service = ReflectionService.new(@character, llm_client: @llm_client)
@@ -103,7 +122,6 @@ class ChatSession
       if reflection_result
         reflection_result[:full_log_path] = full_log_path
 
-        # FullLogのfrontmatter更新
         @chat_logger.update_frontmatter(
           "title" => File.basename(reflection_result[:base_name]).sub(/\ASN-\d+-/, "").tr("_", " "),
           "summary_note" => "[[#{reflection_result[:base_name]}.md]]"
@@ -111,10 +129,9 @@ class ChatSession
       end
     end
 
+    # セッションをクローズしてDBに永続化
+    @record.close!
     @chat_logger.reset!
-    @messages = []
-    @narrative_summary = ""
-    @first_message = true
 
     reflection_result
   end
@@ -144,15 +161,12 @@ class ChatSession
   end
 
   def build_context(user_message)
-    # 記憶検索
     retrieved = @context_retriever.retrieve(user_message)
-
-    # 前向き記憶（直近SNのaction_items）
     prospective = scan_action_items
 
     {
       retrieved_context: retrieved[:llm_context_prompt],
-      narrative_summary: @narrative_summary,
+      narrative_summary: "",
       behavior_principles: load_behavior_principles,
       prospective_memory: prospective,
     }
@@ -187,9 +201,6 @@ class ChatSession
     body.strip.empty? ? "まだ原則は定められていない。" : body
   end
 
-  # generate_reflection, build_reflection_prompt, parse_reflection_response は
-  # ReflectionService に移動済み
-
   # --- Function Calling ---
 
   def build_tool_definitions
@@ -207,17 +218,6 @@ class ChatSession
               required: ["query"],
             },
           },
-          {
-            name: "conversation_reflection",
-            description: "現在の会話を振り返り、サマリーノートを生成して保存する",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                reason: { type: "STRING", description: "振り返りを行う理由" },
-              },
-              required: ["reason"],
-            },
-          },
         ],
       },
     ]
@@ -226,25 +226,10 @@ class ChatSession
   def execute_tool(name, args)
     case name
     when "semantic_search"
-      execute_semantic_search(args["query"])
-    when "conversation_reflection"
-      execute_reflection(args["reason"])
+      result = @context_retriever.retrieve(args["query"])
+      { results: result[:llm_context_prompt] }
     else
       { error: "Unknown tool: #{name}" }
-    end
-  end
-
-  def execute_semantic_search(query)
-    result = @context_retriever.retrieve(query)
-    { results: result[:llm_context_prompt] }
-  end
-
-  def execute_reflection(reason)
-    result = generate_reflection
-    if result
-      { success: true, file: result[:base_name], tags: result[:tags] }
-    else
-      { success: false, error: "振り返りの生成に失敗しました" }
     end
   end
 end
