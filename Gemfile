@@ -41,6 +41,9 @@ gem "ruby-gemini-api"
 # Background job processing
 gem "sidekiq", "~> 7.0"
 
+# Discord Bot
+gem "discordrb", "~> 3.5"
+
 # Environment variables
 gem "dotenv-rails", groups: [:development, :test]
 

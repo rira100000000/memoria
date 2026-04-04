@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_153446) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_160356) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -29,6 +29,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_153446) do
     t.index ["trigger_type"], name: "index_api_usage_logs_on_trigger_type"
     t.index ["user_id", "created_at"], name: "index_api_usage_logs_on_user_id_and_created_at"
     t.index ["user_id"], name: "index_api_usage_logs_on_user_id"
+  end
+
+  create_table "channel_bindings", force: :cascade do |t|
+    t.string "channel_id", null: false
+    t.bigint "character_id", null: false
+    t.datetime "created_at", null: false
+    t.string "platform", default: "discord", null: false
+    t.datetime "updated_at", null: false
+    t.index ["character_id"], name: "index_channel_bindings_on_character_id"
+    t.index ["platform", "channel_id"], name: "index_channel_bindings_on_platform_and_channel_id", unique: true
   end
 
   create_table "characters", force: :cascade do |t|
@@ -87,6 +97,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_153446) do
 
   add_foreign_key "api_usage_logs", "characters"
   add_foreign_key "api_usage_logs", "users"
+  add_foreign_key "channel_bindings", "characters"
   add_foreign_key "characters", "users"
   add_foreign_key "chat_results", "characters"
   add_foreign_key "chat_results", "users"

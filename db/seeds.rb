@@ -9,3 +9,11 @@ char = user.characters.find_or_create_by!(name: ENV.fetch("SEED_MAIN_CHARACTER_N
   PROMPT
 end
 puts "Character created: #{char.name} (vault: #{char.vault_path})"
+
+# Discord ChannelBinding
+if ENV["DISCORD_CHANNEL_ID"].present?
+  binding = ChannelBinding.find_or_create_by!(platform: "discord", channel_id: ENV["DISCORD_CHANNEL_ID"]) do |b|
+    b.character = char
+  end
+  puts "ChannelBinding: Discord ##{binding.channel_id} → #{char.name}"
+end
