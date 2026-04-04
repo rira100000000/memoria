@@ -268,7 +268,10 @@ module MemoriaCore
 
     def parse_date(str)
       return nil unless str
-      match = str.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/)
+      return str if str.is_a?(Time)
+      return str.to_time if str.is_a?(Date)
+
+      match = str.to_s.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/)
       return nil unless match
       Time.new(match[1].to_i, match[2].to_i, match[3].to_i, match[4].to_i, match[5].to_i, (match[6] || 0).to_i)
     rescue ArgumentError
