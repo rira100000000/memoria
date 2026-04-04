@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_102920) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_130336) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -35,8 +35,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_102920) do
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.text "system_prompt"
-    t.boolean "thinking_loop_enabled", default: false
-    t.integer "thinking_loop_interval_minutes", default: 30
+    t.boolean "thinking_loop_enabled", default: false, null: false
+    t.integer "thinking_loop_interval_minutes", default: 60, null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.string "vault_dir_name", null: false
@@ -61,6 +61,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_102920) do
     t.index ["user_id"], name: "index_chat_results_on_user_id"
   end
 
+  create_table "pending_messages", force: :cascade do |t|
+    t.bigint "character_id", null: false
+    t.text "content", null: false
+    t.datetime "created_at", null: false
+    t.datetime "delivered_at"
+    t.string "status", default: "pending", null: false
+    t.string "topic_tag"
+    t.string "trigger_type", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["character_id"], name: "index_pending_messages_on_character_id"
+    t.index ["user_id", "status"], name: "index_pending_messages_on_user_id_and_status"
+    t.index ["user_id"], name: "index_pending_messages_on_user_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "api_token", null: false
     t.datetime "created_at", null: false
@@ -76,4 +91,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_102920) do
   add_foreign_key "characters", "users"
   add_foreign_key "chat_results", "characters"
   add_foreign_key "chat_results", "users"
+  add_foreign_key "pending_messages", "characters"
+  add_foreign_key "pending_messages", "users"
 end
