@@ -1,7 +1,10 @@
 class Character < ApplicationRecord
   belongs_to :user
+  has_many :pending_messages, dependent: :destroy
 
   validates :name, presence: true
+
+  scope :thinking_loop_active, -> { where(thinking_loop_enabled: true) }
 
   before_create :set_vault_dir_name
 

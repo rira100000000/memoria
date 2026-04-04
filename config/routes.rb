@@ -8,5 +8,9 @@ Rails.application.routes.draw do
     end
 
     resources :chat_results, only: [:show]
+
+    resources :pending_messages, only: [:index] do
+      patch :read, on: :member
+    end
   end
 end

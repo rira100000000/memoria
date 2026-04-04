@@ -4,3 +4,11 @@
   - [critical, 3]
   - [default, 2]
   - [low, 1]
+
+:scheduler:
+  :schedule:
+    thinking_loop:
+      cron: "*/10 * * * *"
+      class: ThinkingLoopSchedulerWorker
+      queue: low
+      description: "Dispatch thinking loop for active characters"
