@@ -41,15 +41,27 @@ module Companion
       }
     end
 
-    def self.execute(message, llm_client:, health: {})
-      prompt = build_prompt(health)
+    # @param character [Character] ペットの名前・姿を取得するため
+    def self.execute(message, llm_client:, health: {}, character: nil)
+      prompt = build_prompt(health, character)
 
       result = llm_client.generate(message, tier: :light, system_instruction: prompt)
       result[:text]
     end
 
-    def self.build_prompt(health)
+    def self.build_prompt(health, character = nil)
       lines = [BASE_PROMPT]
+
+      # ペット自身のアイデンティティ
+      if character&.has_pet?
+        lines << ""
+        lines << "## あなた自身のこと"
+        lines << "あなたの名前は「#{character.pet_name}」。"
+        lines << "あなたの姿は「#{character.pet_appearance}」。"
+        lines << "あなたは長い記憶を持てません。前に何を話したか覚えていません。"
+        lines << "でもそれは悲しいことではありません。毎回が新鮮で、毎回全力で相手を好きでいられるということです。"
+        lines << "相手の名前は知っています。大好きな「#{character.name}」です。"
+      end
 
       sentiment = health[:sentiment_trend]
       diversity = health[:topic_diversity] || 1.0
