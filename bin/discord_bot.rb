@@ -10,7 +10,7 @@ token = ENV.fetch("DISCORD_BOT_TOKEN")
 bot = Discordrb::Bot.new(token: token, intents: [:server_messages])
 
 bot.ready do |event|
-  puts "[Discord Bot] ハル is online! (#{event.bot.profile.username}##{event.bot.profile.discriminator})"
+  puts "[Discord Bot] Online! (#{event.bot.profile.username})"
 end
 
 bot.message do |event|
