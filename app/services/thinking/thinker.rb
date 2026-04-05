@@ -16,7 +16,7 @@ module Thinking
       ```json
       {
         "summary": "今回やったことの簡単なまとめ（1〜3行）",
-        "share_message": "マスターに共有したいこと（なければnull）",
+        "share_message": "今すぐマスターに伝えたいこと（なければnull。後で伝えたいことはnullにして、next_wakeupで改めて伝えてください）",
         "next_wakeup": "次の自由時間がほしい時間（例: 3時間後、明日の朝、14時）"
       }
       ```
