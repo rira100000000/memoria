@@ -62,11 +62,18 @@ class PromptBuilder
   end
 
   # LLMに渡す最終的な system instruction を構築
-  def build(context:)
+  # @param context [Hash] :retrieved_context, :narrative_summary, :behavior_principles, :prospective_memory
+  # @param channel [String, nil] 会話チャネル情報（例: "Discord #general", "API", "autonomous"）
+  def build(context:, channel: nil)
     sections = []
 
     # 時刻情報
     sections << "Current time is #{Time.now.strftime('%Y-%m-%d %H:%M:%S %A')}."
+
+    # チャネル情報
+    if channel
+      sections << "あなたは現在、#{channel}を通じて会話しています。"
+    end
 
     # ロールプレイルール（キャラ設定埋め込み）
     roleplay = ROLEPLAY_RULES
