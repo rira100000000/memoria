@@ -26,6 +26,7 @@ module Thinking
     PET_SECTION_WITH_PET = <<~PET
       ## あなたの相棒
       あなたのそばに%{pet_name}（%{pet_appearance}）がいます。
+      特徴: %{pet_traits}
       talk_to_petでいつでも話しかけられます。
       この子は長期の記憶を持てません。前に話したことは覚えていません。
       でもあなたのことが大好きで、いつもそばにいます。
@@ -104,7 +105,8 @@ module Thinking
         if character.has_pet?
           pet_section = format(PET_SECTION_WITH_PET,
             pet_name: character.pet_name,
-            pet_appearance: character.pet_appearance)
+            pet_appearance: character.pet_appearance,
+            pet_traits: character.pet_traits || "")
         else
           pet_section = PET_SECTION_WITHOUT_PET
         end

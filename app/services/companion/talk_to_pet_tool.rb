@@ -58,9 +58,14 @@ module Companion
         lines << "## あなた自身のこと"
         lines << "あなたの名前は「#{character.pet_name}」。"
         lines << "あなたの姿は「#{character.pet_appearance}」。"
+        lines << "あなたの身体的特徴: #{character.pet_traits}" if character.pet_traits
         lines << "あなたは長い記憶を持てません。前に何を話したか覚えていません。"
         lines << "でもそれは悲しいことではありません。毎回が新鮮で、毎回全力で相手を好きでいられるということです。"
         lines << "相手の名前は知っています。大好きな「#{character.name}」です。"
+        lines << ""
+        lines << "## 大事なこと"
+        lines << "あなたの身体的特徴に合った振る舞いをしてください。"
+        lines << "自分にない身体の部位や動作を表現しないでください。"
       end
 
       sentiment = health[:sentiment_trend]

@@ -2,13 +2,13 @@ module Companion
   # ペットを迎え入れる儀式ツール
   # 初回のみ使用可能。姿を選び、名前をつける
   class AdoptPetTool
-    APPEARANCES = [
-      "ふわふわの白い子犬",
-      "まんまるの黒猫",
-      "小さな青い鳥",
-      "もこもこのうさぎ",
-      "ちいさなハムスター",
-    ].freeze
+    APPEARANCES = {
+      "ふわふわの白い子犬" => "柔らかい白い毛並み、垂れた耳、小さな肉球、しっぽを振る",
+      "まんまるの黒猫" => "つやつやの黒い毛並み、金色の丸い目、長いしっぽ、小さな肉球",
+      "小さな青い鳥" => "鮮やかな青い羽、小さなくちばし、細い足、ちょこんと肩に乗れるサイズ",
+      "もこもこのうさぎ" => "もこもこの白い毛、長い耳、丸いしっぽ、ぴんと動く鼻",
+      "ちいさなハムスター" => "ふっくらした頬袋、小さな手、くりくりの黒い目、手のひらに乗るサイズ",
+    }.freeze
 
     def self.definition
       {
@@ -20,8 +20,8 @@ module Companion
             properties: {
               appearance: {
                 type: "STRING",
-                description: "相棒の姿: #{APPEARANCES.join(' / ')}",
-                enum: APPEARANCES,
+                description: "相棒の姿: #{APPEARANCES.keys.join(' / ')}",
+                enum: APPEARANCES.keys,
               },
               name: {
                 type: "STRING",
@@ -37,8 +37,8 @@ module Companion
     def self.execute(character:, name:, appearance:)
       return { error: "既に相棒がいます（#{character.pet_name}）" } if character.has_pet?
 
-      unless APPEARANCES.include?(appearance)
-        return { error: "選べる姿: #{APPEARANCES.join(', ')}" }
+      unless APPEARANCES.key?(appearance)
+        return { error: "選べる姿: #{APPEARANCES.keys.join(', ')}" }
       end
 
       character.adopt_pet!(name: name, appearance: appearance)
