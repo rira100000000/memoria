@@ -39,7 +39,7 @@ gem "rack-cors"
 gem "ruby-gemini-api"
 
 # Background job processing
-gem "sidekiq", "~> 7.2.0"
+gem "sidekiq", "~> 8.0.10"
 gem "connection_pool", "~> 2.4"
 
 # Discord Bot
