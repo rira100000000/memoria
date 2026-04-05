@@ -53,7 +53,30 @@ module MemoriaCore
       fm&.dig("title") || "不明"
     end
 
-    # --- 自律活動ログ ---
+    # --- 日次記憶整理 ---
+
+    # 指定日のSN一覧（タイトルとパス）を返す
+    def sns_for_date(date)
+      sn_store.list_by_date(date).filter_map { |path|
+        content = vault.read(path)
+        next unless content
+        fm, body = Frontmatter.parse(content)
+        next unless fm
+        next if fm["archived"]
+        {
+          path: path,
+          base_name: File.basename(path, ".md"),
+          title: fm["title"],
+          source: fm["source"],
+          mood: fm["mood"],
+          key_takeaways: fm["key_takeaways"],
+          tags: fm["tags"],
+          body_preview: body.to_s.slice(0, 200),
+        }
+      }
+    end
+
+    # --- 自律活��ログ ---
 
     # 直近の自律活動のサマリー
     def last_autonomous_log_summary

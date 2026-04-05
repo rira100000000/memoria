@@ -132,6 +132,7 @@ module Thinking
 
         fns = [memory_fn]
         fns += Thinking::ScheduleTools.definitions[:functionDeclarations]
+        fns += Thinking::MemoryMaintenanceTools.definitions[:functionDeclarations]
         fns += Thinking::WebSearchTool.definition[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
@@ -156,6 +157,8 @@ module Thinking
           )
         when "list_schedules", "add_schedule", "cancel_schedule"
           Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character, autonomous: true)
+        when "list_yesterdays_memories", "merge_memories", "archive_memory"
+          Thinking::MemoryMaintenanceTools.execute(fc[:name], fc[:args], core: core, character: character, llm_client: llm_client)
         when "web_search"
           Thinking::WebSearchTool.execute(fc[:args]["query"], llm_client: llm_client)
         when "read_memory"
@@ -189,6 +192,15 @@ module Thinking
         when "list_schedules"
           schedules = tool_result.is_a?(Hash) ? tool_result[:schedules] : ""
           messages << { role: "tool", content: "[スケジュール確認]\n#{schedules}", participant: "system" }
+        when "list_yesterdays_memories"
+          count = tool_result.is_a?(Hash) ? tool_result[:count] : 0
+          messages << { role: "tool", content: "[昨日の記憶一覧] #{count || 0}件", participant: "system" }
+        when "merge_memories"
+          merged = tool_result.is_a?(Hash) ? tool_result[:merged_as] : ""
+          messages << { role: "tool", content: "[記憶統合] → #{merged}", participant: "system" }
+        when "archive_memory"
+          archived = tool_result.is_a?(Hash) ? tool_result[:archived] : ""
+          messages << { role: "tool", content: "[記憶アーカイブ] #{archived}", participant: "system" }
         when "web_search"
           answer = tool_result.is_a?(Hash) ? tool_result[:answer].to_s.slice(0, 300) : tool_result.to_s.slice(0, 300)
           messages << { role: "tool", content: "[Web検索: #{fc[:args]["query"]}] #{answer}", participant: "system" }

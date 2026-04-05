@@ -9,13 +9,15 @@ class ThinkingLoopWorker
   # @param wakeup_id [Integer, nil] ScheduledWakeupのID（スケジュール経由の場合）
   def perform(character_id, wakeup_id = nil)
     character = Character.find(character_id)
-    return unless character.thinking_loop_enabled?
 
     # スケジュール経由の場合、実行済みにマーク
     wakeup = wakeup_id ? ScheduledWakeup.find_by(id: wakeup_id) : nil
     if wakeup
       return if wakeup.status != "pending"  # キャンセル済みならスキップ
       wakeup.execute!
+    else
+      # スケジュールなしの直接実行はthinking_loop_enabled必須
+      return unless character.thinking_loop_enabled?
     end
 
     # バジェットチェック
