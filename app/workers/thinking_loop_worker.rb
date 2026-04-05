@@ -41,8 +41,10 @@ class ThinkingLoopWorker
     save_as_memory(core, character, result, llm_client)
 
     # Step 4: ユーザーへの発話（AIが判断した場合のみ）
-    if result.wants_to_share?
-      MessageDispatcher.dispatch(character, result.share_message)
+    # ユーザーへの発話（共有メッセージがあればそれを、なければサマリーを送信）
+    message_to_send = result.share_message.presence || result.summary
+    if message_to_send
+      MessageDispatcher.dispatch(character, message_to_send)
     end
 
     # Step 5: 次の起床をスケジュール
@@ -50,7 +52,7 @@ class ThinkingLoopWorker
 
     Rails.logger.info("[ThinkingLoopWorker] Character##{character_id} completed. Summary: #{result.summary}")
   rescue => e
-    Rails.logger.error("[ThinkingLoopWorker] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+    Rails.logger.error("[ThinkingLoopWorker] Error: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
     # エラーでも次の起床はスケジュール（放置防止）
     schedule_next_wakeup(character_id, nil)
     raise
