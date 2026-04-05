@@ -4,25 +4,26 @@ class ChatSession
   attr_reader :character, :chat_logger
 
   # ChatSessionRecordから復元 or 新規作成
-  def self.find_or_create(character, user)
+  def self.find_or_create(character, user, channel: nil)
     record = ChatSessionRecord.active
       .find_or_create_by!(character: character, user: user) do |r|
         r.status = "active"
         r.messages = []
       end
-    new(character, record: record)
+    new(character, record: record, channel: channel)
   end
 
-  def self.find_active(character, user)
+  def self.find_active(character, user, channel: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
-    new(character, record: record)
+    new(character, record: record, channel: channel)
   end
 
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message")
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil)
     @character = character
     @record = record
     @trigger_type = trigger_type
+    @channel = channel
     tracker = build_usage_tracker
     @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
@@ -58,7 +59,7 @@ class ChatSession
     context = build_context(user_message)
 
     # システムインストラクション構築
-    system_instruction = @prompt_builder.build(context: context)
+    system_instruction = @prompt_builder.build(context: context, channel: @channel)
 
     # Gemini API 用メッセージ構築
     gemini_messages = @record.messages.map do |m|

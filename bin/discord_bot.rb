@@ -36,7 +36,8 @@ bot.message do |event|
     event.channel.start_typing
 
     # ChatSessionを取得または作成
-    session = ChatSession.find_or_create(character, user)
+    channel_name = "Discord ##{event.channel.name}"
+    session = ChatSession.find_or_create(character, user, channel: channel_name)
     result = session.send_message(message_text)
 
     # 応答を送信（2000文字制限対応）

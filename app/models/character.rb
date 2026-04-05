@@ -13,6 +13,20 @@ class Character < ApplicationRecord
     File.join(user.vault_path, vault_dir_name)
   end
 
+  def enable_thinking_loop!
+    update!(thinking_loop_enabled: true)
+    ThinkingLoopWorker.perform_async(id)
+  end
+
+  def disable_thinking_loop!
+    update!(thinking_loop_enabled: false)
+    # スケジュール済みジョブをキャンセル
+    require "sidekiq/api"
+    Sidekiq::ScheduledSet.new.select { |job|
+      job.klass == "ThinkingLoopWorker" && job.args == [id]
+    }.each(&:delete)
+  end
+
   private
 
   def set_vault_dir_name
