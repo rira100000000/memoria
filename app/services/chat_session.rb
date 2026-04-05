@@ -4,26 +4,31 @@ class ChatSession
   attr_reader :character, :chat_logger
 
   # ChatSessionRecordから復元 or 新規作成
-  def self.find_or_create(character, user, channel: nil)
+  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil)
     record = ChatSessionRecord.active
       .find_or_create_by!(character: character, user: user) do |r|
         r.status = "active"
         r.messages = []
       end
-    new(character, record: record, channel: channel)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor)
   end
 
-  def self.find_active(character, user, channel: nil)
+  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
-    new(character, record: record, channel: channel)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor)
   end
 
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil)
+  # @param extra_tools [Array<Hash>, nil] アプリ層から追加するFunction Calling定義（functionDeclarationsの配列）
+  # @param extra_tool_executor [Proc, nil] アプリ層のツール実行 lambda { |name, args| result_hash or nil }
+  #   nilを返すとChatSession内蔵のツール（semantic_search）にフォールバック
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil)
     @character = character
     @record = record
     @trigger_type = trigger_type
     @channel = channel
+    @extra_tools = extra_tools
+    @extra_tool_executor = extra_tool_executor
     tracker = build_usage_tracker
     @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
@@ -203,26 +208,40 @@ class ChatSession
   # --- Function Calling ---
 
   def build_tool_definitions
-    [
+    base_fns = [
       {
-        functionDeclarations: [
-          {
-            name: "semantic_search",
-            description: "記憶のセマンティック検索を実行し、関連する記憶を返す",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                query: { type: "STRING", description: "検索クエリ" },
-              },
-              required: ["query"],
-            },
+        name: "semantic_search",
+        description: "記憶のセマンティック検索を実行し、関連する記憶を返す",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            query: { type: "STRING", description: "検索クエリ" },
           },
-        ],
+          required: ["query"],
+        },
       },
     ]
+
+    # アプリ層から追加されたツール定義をマージ
+    if @extra_tools
+      @extra_tools.each do |tool_def|
+        if tool_def[:functionDeclarations]
+          base_fns += tool_def[:functionDeclarations]
+        end
+      end
+    end
+
+    [{ functionDeclarations: base_fns }]
   end
 
   def execute_tool(name, args)
+    # アプリ層のexecutorを先に試す
+    if @extra_tool_executor
+      result = @extra_tool_executor.call(name, args)
+      return result if result
+    end
+
+    # memoria内蔵ツール
     case name
     when "semantic_search"
       result = @context_retriever.retrieve(args["query"])
