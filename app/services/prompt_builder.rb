@@ -107,6 +107,15 @@ class PromptBuilder
       PM
     end
 
+    # スケジュール情報
+    if context[:upcoming_schedules] && !context[:upcoming_schedules].empty?
+      sections << <<~SCHED
+        ## あなたの予定
+        以下はあなたが自分で設定した今後の予定である。会話の流れで自然に関連する場合は、予定の存在を踏まえて振る舞え。不要になった予定はcancel_scheduleツールでキャンセルできる。
+        #{context[:upcoming_schedules]}
+      SCHED
+    end
+
     # memoria_instruction は最後に（最も重要な指示として）
     sections << MEMORIA_INSTRUCTION
 

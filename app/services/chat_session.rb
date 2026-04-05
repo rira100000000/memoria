@@ -175,13 +175,23 @@ class ChatSession
   def build_context(user_message)
     retrieved = @context_retriever.retrieve(user_message)
     prospective = scan_action_items
+    schedules = build_schedule_context
 
     {
       retrieved_context: retrieved[:llm_context_prompt],
       narrative_summary: "",
       behavior_principles: load_behavior_principles,
       prospective_memory: prospective,
+      upcoming_schedules: schedules,
     }
+  end
+
+  def build_schedule_context
+    upcoming = @character.scheduled_wakeups.upcoming.limit(10)
+    return "" if upcoming.empty?
+    upcoming.map { |s|
+      "#{s.scheduled_at.in_time_zone('Asia/Tokyo').strftime('%m/%d %H:%M')} — #{s.purpose} (ID:#{s.id})"
+    }.join("\n")
   end
 
   def scan_action_items

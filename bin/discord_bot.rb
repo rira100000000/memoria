@@ -35,13 +35,13 @@ bot.message do |event|
     # タイピング表示
     event.channel.start_typing
 
-    # ChatSessionを取得または作成（ペットツールをアプリ層から注入）
+    # ChatSessionを取得または作成（アプリ層ツールを注入）
     channel_name = "Discord ##{event.channel.name}"
-    pet_tools, pet_executor = build_pet_tools(character)
+    tools, executor = build_app_tools(character)
     session = ChatSession.find_or_create(character, user,
       channel: channel_name,
-      extra_tools: pet_tools,
-      extra_tool_executor: pet_executor
+      extra_tools: tools,
+      extra_tool_executor: executor
     )
     result = session.send_message(message_text)
 
@@ -58,20 +58,24 @@ bot.message do |event|
   end
 end
 
-def build_pet_tools(character)
-  return [nil, nil] unless character.has_pet?
+def build_app_tools(character)
+  tools = []
+  tools << Thinking::ScheduleTools.definitions
 
-  tools = [Companion::TalkToPetTool.definition]
-
-  health = Thinking::ThoughtHealthMonitor.report(
-    MemoriaCore::Core.new(character.vault_path)
-  ) rescue {}
+  health = {}
+  if character.has_pet?
+    tools << Companion::TalkToPetTool.definition
+    health = Thinking::ThoughtHealthMonitor.report(
+      MemoriaCore::Core.new(character.vault_path)
+    ) rescue {}
+  end
 
   pet_name = character.pet_name || "ペット"
 
   executor = ->(name, args) {
     case name
     when "talk_to_pet"
+      next nil unless character.has_pet?
       pet_response = Companion::TalkToPetTool.execute(
         args["message"],
         llm_client: LlmClient.new,
@@ -86,6 +90,8 @@ def build_pet_tools(character)
           "#{pet_name}: #{pet_text}",
         ],
       }
+    when "list_schedules", "add_schedule", "cancel_schedule"
+      Thinking::ScheduleTools.execute(name, args, character: character)
     end
     # nilを返すとChatSessionの内蔵ツールにフォールバック
   }
