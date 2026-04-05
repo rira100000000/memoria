@@ -33,11 +33,19 @@ RSpec.describe Thinking::ScheduleTools do
       expect(result[:error]).to be_present
     end
 
-    it "clamps to minimum interval" do
+    it "clamps to minimum interval for autonomous" do
       Sidekiq::Testing.fake! do
-        result = described_class.add(character, time_text: "1分後", purpose: "急ぎ")
+        result = described_class.add(character, time_text: "1分後", purpose: "急ぎ", autonomous: true)
         wakeup = character.scheduled_wakeups.last
         expect(wakeup.scheduled_at).to be > 9.minutes.from_now
+      end
+    end
+
+    it "allows short interval for user-initiated" do
+      Sidekiq::Testing.fake! do
+        result = described_class.add(character, time_text: "2分後", purpose: "テスト")
+        wakeup = character.scheduled_wakeups.last
+        expect(wakeup.scheduled_at).to be < 5.minutes.from_now
       end
     end
   end

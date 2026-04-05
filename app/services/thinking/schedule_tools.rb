@@ -41,12 +41,13 @@ module Thinking
       }
     end
 
-    def self.execute(name, args, character:)
+    # @param autonomous [Boolean] 自律行動からの呼び出しか（trueなら最短10分制限）
+    def self.execute(name, args, character:, autonomous: false)
       case name
       when "list_schedules"
         list(character)
       when "add_schedule"
-        add(character, time_text: args["time"], purpose: args["purpose"], action: args["action"])
+        add(character, time_text: args["time"], purpose: args["purpose"], action: args["action"], autonomous: autonomous)
       when "cancel_schedule"
         cancel(character, args["schedule_id"])
       end
@@ -64,12 +65,13 @@ module Thinking
       end
     end
 
-    def self.add(character, time_text:, purpose:, action: nil)
+    def self.add(character, time_text:, purpose:, action: nil, autonomous: false)
       wakeup_at = parse_time(time_text)
       return { error: "時間を解釈できませんでした: #{time_text}" } unless wakeup_at
 
-      # ガードレール
-      clamped = wakeup_at.clamp(MINIMUM_INTERVAL.from_now, MAXIMUM_INTERVAL.from_now)
+      # ガードレール（自律行動は最短10分、ユーザー指示は最短1分）
+      min_interval = autonomous ? MINIMUM_INTERVAL : 1.minute
+      clamped = wakeup_at.clamp(min_interval.from_now, MAXIMUM_INTERVAL.from_now)
 
       wakeup = character.scheduled_wakeups.create!(
         scheduled_at: clamped,

@@ -155,7 +155,7 @@ module Thinking
             appearance: fc[:args]["appearance"]
           )
         when "list_schedules", "add_schedule", "cancel_schedule"
-          Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character)
+          Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character, autonomous: true)
         when "web_search"
           Thinking::WebSearchTool.execute(fc[:args]["query"], llm_client: llm_client)
         when "read_memory"
