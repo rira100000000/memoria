@@ -27,10 +27,16 @@ class Character < ApplicationRecord
     pet_config&.dig("appearance")
   end
 
+  def pet_traits
+    pet_config&.dig("traits")
+  end
+
   def adopt_pet!(name:, appearance:)
+    traits = Companion::AdoptPetTool::APPEARANCES[appearance]
     update!(pet_config: {
       "name" => name,
       "appearance" => appearance,
+      "traits" => traits,
       "adopted_at" => Time.current.strftime("%Y-%m-%d %H:%M"),
     })
   end
