@@ -1,6 +1,10 @@
 # Ignore MCP config
 .mcp.json
 
+# Plan documents (private)
+plan.md
+plan2.md
+
 # Environment variables
 .env
 .env.local
