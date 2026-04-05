@@ -41,10 +41,9 @@ class ThinkingLoopWorker
     save_as_memory(core, character, result, llm_client)
 
     # Step 4: ユーザーへの発話（AIが判断した場合のみ）
-    # ユーザーへの発話（共有メッセージがあればそれを、なければサマリーを送信）
-    message_to_send = result.share_message.presence || result.summary
-    if message_to_send
-      MessageDispatcher.dispatch(character, message_to_send)
+    # ユーザーへの発話（AIが共有したいと判断した場合のみ）
+    if result.wants_to_share?
+      MessageDispatcher.dispatch(character, result.share_message)
     end
 
     # Step 5: 次の起床をスケジュール
