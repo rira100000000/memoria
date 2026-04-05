@@ -2,8 +2,7 @@
 .mcp.json
 
 # Plan documents (private)
-plan.md
-plan2.md
+/plan/
 
 # Environment variables
 .env
