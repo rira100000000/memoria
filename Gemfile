@@ -40,7 +40,7 @@ gem "ruby-gemini-api"
 
 # Background job processing
 gem "sidekiq", "~> 7.2.0"
-gem "connection_pool", "~> 2.4"
+gem "connection_pool", "~> 3.0"
 
 # Discord Bot
 gem "discordrb", "~> 3.5"
