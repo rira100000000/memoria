@@ -72,12 +72,8 @@ class ChatSession
 
     # Function Call がある場合はループ処理
     while result[:function_calls]&.any?
-      model_parts = []
-      model_parts << { text: result[:text] } if result[:text] && !result[:text].empty?
-      result[:function_calls].each do |fc|
-        model_parts << { functionCall: { name: fc[:name], args: fc[:args] } }
-      end
-      gemini_messages << { role: "model", parts: model_parts }
+      # raw_partsをそのまま使い、thought_signatureを保持
+      gemini_messages << { role: "model", parts: result[:raw_parts] }
 
       function_responses = result[:function_calls].map do |fc|
         tool_result = execute_tool(fc[:name], fc[:args])

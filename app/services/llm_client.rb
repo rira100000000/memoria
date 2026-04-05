@@ -102,6 +102,9 @@ class LlmClient
   private
 
   def apply_thinking_config!(params)
+    # thinkingConfigはtools(Function Calling)と併用不可のモデルがあるため、tools使用時はスキップ
+    return if params[:tools]
+
     if @thinking_budget > 0
       params[:generationConfig] ||= {}
       params[:generationConfig][:thinkingConfig] = { thinkingBudget: @thinking_budget }
@@ -125,6 +128,7 @@ class LlmClient
     {
       text: response.text || "",
       function_calls: fc,
+      raw_parts: response.parts,
       usage: {
         input_tokens: usage_meta["promptTokenCount"] || 0,
         output_tokens: usage_meta["candidatesTokenCount"] || 0,

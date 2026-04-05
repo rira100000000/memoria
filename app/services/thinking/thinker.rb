@@ -21,62 +21,54 @@ module Thinking
       特に理由がなければ長めに眠って構いません。
     PROMPT
 
-    MAX_TURNS = 3
+    MAX_TOOL_ROUNDS = 5
 
     def self.run(snapshot:, character:, core:, health:, llm_client:)
-      messages = []
+      messages = []       # FL用の人間が読めるログ
       participants = [:self]
       tools = build_tools
 
       prompt = SYSTEM_PROMPT + "\n\n" + snapshot
 
-      # システムインストラクション（キャラクター設定 + memoria指示）
+      # システムインストラクション
       prompt_builder = PromptBuilder.new(character)
       system_instruction = prompt_builder.build(context: {
         retrieved_context: "",
         narrative_summary: "",
         behavior_principles: load_behavior_principles(core),
         prospective_memory: "",
-      })
+      }, channel: "autonomous thinking")
 
-      # 思考ループ（最大MAX_TURNSターン）
+      # Gemini API用メッセージ
       gemini_messages = [{ role: "user", parts: [{ text: prompt }] }]
 
-      MAX_TURNS.times do |turn|
-        model_tier = turn == 0 ? :light : :main
-        result = llm_client.generate(
-          prompt,
-          tier: model_tier,
+      MAX_TOOL_ROUNDS.times do
+        result = llm_client.chat(
+          gemini_messages,
           system_instruction: system_instruction,
           tools: tools
-        ) if turn == 0
+        )
 
-        if turn > 0
-          result = llm_client.chat(
-            gemini_messages,
-            system_instruction: system_instruction,
-            tools: tools
-          )
+        # テキスト応答があれば記録
+        if result[:text].present?
+          messages << { role: "model", content: result[:text], participant: character.name }
         end
-
-        # メッセージ記録
-        messages << { role: "model", content: result[:text], participant: character.name }
 
         # Function Callがなければ完了
         break if result[:function_calls].empty?
 
-        # Function Call処理
-        model_parts = []
-        model_parts << { text: result[:text] } if result[:text].present?
-        result[:function_calls].each do |fc|
-          model_parts << { functionCall: { name: fc[:name], args: fc[:args] } }
-        end
-        gemini_messages << { role: "model", parts: model_parts }
+        # gemini_messagesに応答を追加（raw_partsでthoughtSignatureを保持）
+        gemini_messages << { role: "model", parts: result[:raw_parts] }
 
+        # ツール実行
         function_responses = result[:function_calls].map do |fc|
           tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health)
           participants << :pet if fc[:name] == "talk_to_pet"
-          messages << { role: "tool", content: "#{fc[:name]}: #{tool_result.to_json}", participant: fc[:name] }
+          messages << {
+            role: "tool",
+            content: "[#{fc[:name]}] #{summarize_tool_result(fc[:name], tool_result)}",
+            participant: fc[:name],
+          }
           { name: fc[:name], response: tool_result }
         end
 
@@ -96,15 +88,9 @@ module Thinking
       private
 
       def build_tools
-        [
-          Companion::TalkToPetTool.definition,
-          read_memory_tool_definition,
-        ]
-      end
-
-      def read_memory_tool_definition
-        {
-          functionDeclarations: [{
+        pet_fns = Companion::TalkToPetTool.definition[:functionDeclarations]
+        [{
+          functionDeclarations: pet_fns + [{
             name: "read_memory",
             description: "記憶を検索して関連する情報を取得する",
             parameters: {
@@ -115,11 +101,11 @@ module Thinking
               required: ["query"],
             },
           }],
-        }
+        }]
       end
 
       def execute_tool(fc, core:, llm_client:, health:)
-        case fc[:name]
+        result = case fc[:name]
         when "talk_to_pet"
           Companion::TalkToPetTool.execute(
             fc[:args]["message"],
@@ -131,6 +117,9 @@ module Thinking
         else
           { error: "Unknown tool: #{fc[:name]}" }
         end
+
+        # Gemini APIのfunctionResponse.responseはStructが必須（文字列不可）
+        result.is_a?(Hash) ? result : { response: result.to_s }
       end
 
       def execute_read_memory(query, core:, llm_client:)
@@ -139,6 +128,19 @@ module Thinking
         retriever = MemoriaCore::ContextRetriever.new(core.vault, embedding_store)
         result = retriever.retrieve(query)
         { results: result[:llm_context_prompt] }
+      end
+
+      # ツール結果をFL用に要約（read_memoryの巨大なレスポンスを短縮）
+      def summarize_tool_result(name, result)
+        case name
+        when "read_memory"
+          text = result[:results].to_s
+          "#{text.length}文字の記憶を検索"
+        when "talk_to_pet"
+          result.to_s.slice(0, 200)
+        else
+          result.to_s.slice(0, 200)
+        end
       end
 
       def load_behavior_principles(core)
