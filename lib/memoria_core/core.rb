@@ -118,13 +118,14 @@ module MemoriaCore
       }
     end
 
-    # ユーザー会話のSN
+    # ユーザー会話のSN（sourceが"autonomous"でないもの）
+    # sourceが空/nilの場合は旧データとしてユーザー会話扱い
     def user_conversation_sns
       sn_store.list.sort.select { |path|
         content = vault.read(path)
         next false unless content
         fm, = Frontmatter.parse(content)
-        fm&.dig("source") != "autonomous"
+        fm&.dig("source").to_s.strip != "autonomous"
       }
     end
 
