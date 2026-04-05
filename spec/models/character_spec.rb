@@ -21,7 +21,7 @@ RSpec.describe Character, type: :model do
     end
 
     it "generates fallback for non-ascii names" do
-      char = create(:character, name: ENV.fetch("SEED_MAIN_CHARACTER_NAME", "アシスタント"))
+      char = create(:character, name: "テスト太郎")
       expect(char.vault_dir_name).to match(/\Achar_[a-f0-9]{8}\z/)
     end
   end
