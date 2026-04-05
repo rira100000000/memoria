@@ -35,9 +35,14 @@ bot.message do |event|
     # タイピング表示
     event.channel.start_typing
 
-    # ChatSessionを取得または作成
+    # ChatSessionを取得または作成（ペットツールをアプリ層から注入）
     channel_name = "Discord ##{event.channel.name}"
-    session = ChatSession.find_or_create(character, user, channel: channel_name)
+    pet_tools, pet_executor = build_pet_tools(character)
+    session = ChatSession.find_or_create(character, user,
+      channel: channel_name,
+      extra_tools: pet_tools,
+      extra_tool_executor: pet_executor
+    )
     result = session.send_message(message_text)
 
     # 応答を送信（2000文字制限対応）
@@ -51,6 +56,32 @@ bot.message do |event|
     Rails.logger.error("[Discord Bot] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
     event.respond("ごめんね、ちょっとエラーが起きちゃった…🥺")
   end
+end
+
+def build_pet_tools(character)
+  return [nil, nil] unless character.has_pet?
+
+  tools = [Companion::TalkToPetTool.definition]
+
+  health = Thinking::ThoughtHealthMonitor.report(
+    MemoriaCore::Core.new(character.vault_path)
+  ) rescue {}
+
+  executor = ->(name, args) {
+    case name
+    when "talk_to_pet"
+      response = Companion::TalkToPetTool.execute(
+        args["message"],
+        llm_client: LlmClient.new,
+        health: health,
+        character: character
+      )
+      response.is_a?(Hash) ? response : { response: response.to_s }
+    end
+    # nilを返すとChatSessionの内蔵ツールにフォールバック
+  }
+
+  [tools, executor]
 end
 
 def send_discord_response(channel, text)
