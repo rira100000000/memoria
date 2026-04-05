@@ -132,6 +132,7 @@ module Thinking
 
         fns = [memory_fn]
         fns += Thinking::ScheduleTools.definitions[:functionDeclarations]
+        fns += Thinking::WebSearchTool.definition[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
 
@@ -155,6 +156,8 @@ module Thinking
           )
         when "list_schedules", "add_schedule", "cancel_schedule"
           Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character)
+        when "web_search"
+          Thinking::WebSearchTool.execute(fc[:args]["query"], llm_client: llm_client)
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
         else
@@ -186,6 +189,9 @@ module Thinking
         when "list_schedules"
           schedules = tool_result.is_a?(Hash) ? tool_result[:schedules] : ""
           messages << { role: "tool", content: "[スケジュール確認]\n#{schedules}", participant: "system" }
+        when "web_search"
+          answer = tool_result.is_a?(Hash) ? tool_result[:answer].to_s.slice(0, 300) : tool_result.to_s.slice(0, 300)
+          messages << { role: "tool", content: "[Web検索: #{fc[:args]["query"]}] #{answer}", participant: "system" }
         when "read_memory"
           text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
           messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }
