@@ -39,7 +39,8 @@ gem "rack-cors"
 gem "ruby-gemini-api"
 
 # Background job processing
-gem "sidekiq", "~> 7.0"
+gem "sidekiq", "~> 7.2.0"
+gem "connection_pool", "~> 2.4"
 
 # Discord Bot
 gem "discordrb", "~> 3.5"
@@ -58,6 +59,9 @@ group :development, :test do
   gem "rspec-rails", "~> 7.0"
   gem "factory_bot_rails"
   gem "webmock"
+end
+
+group :test do
   gem "rspec-sidekiq"
 
   # Audits gems for known security defects (use config/bundler-audit.yml to ignore issues)

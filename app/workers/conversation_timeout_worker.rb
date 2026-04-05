@@ -5,7 +5,7 @@ class ConversationTimeoutWorker
 
   sidekiq_options queue: :default, retry: 1
 
-  TIMEOUT_MINUTES = 30
+  TIMEOUT_MINUTES = ENV.fetch("CONVERSATION_TIMEOUT_MINUTES", 30).to_i
 
   def perform(chat_session_record_id, expected_message_count)
     record = ChatSessionRecord.find_by(id: chat_session_record_id)
