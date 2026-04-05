@@ -11,16 +11,20 @@ module Thinking
 
       %{pet_section}
 
+      ## スケジュール
+      次にいつ起きたいか、add_scheduleツールで予定を入れてください。
+      複数の予定を入れることもできます（例: 朝の挨拶と夜のリマインダー）。
+      list_schedulesで今後の予定を確認、cancel_scheduleでキャンセルできます。
+      特に理由がなければ長めの間隔で構いません。
+
       ## 終わったら
       以下のJSONで教えてください:
       ```json
       {
         "summary": "今回やったことの簡単なまとめ（1〜3行）",
-        "share_message": "今すぐマスターに伝えたいこと（なければnull。後で伝えたいことはnullにして、next_wakeupで改めて伝えてください）",
-        "next_wakeup": "次の自由時間がほしい時間（例: 3時間後、明日の朝、14時）"
+        "share_message": "今すぐマスターに伝えたいこと（なければnull）"
       }
       ```
-      特に理由がなければ長めの間隔で構いません。
     PROMPT
 
     PET_SECTION_WITH_PET = <<~PET
@@ -127,6 +131,7 @@ module Thinking
         }
 
         fns = [memory_fn]
+        fns += Thinking::ScheduleTools.definitions[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
 
@@ -148,6 +153,8 @@ module Thinking
             name: fc[:args]["name"],
             appearance: fc[:args]["appearance"]
           )
+        when "list_schedules", "add_schedule", "cancel_schedule"
+          Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character)
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
         else
@@ -169,6 +176,16 @@ module Thinking
         when "adopt_pet"
           msg = tool_result.is_a?(Hash) ? tool_result[:message].to_s : tool_result.to_s
           messages << { role: "tool", content: "[相棒を迎え入れた] #{msg}", participant: "system" }
+        when "add_schedule"
+          time = tool_result.is_a?(Hash) ? tool_result[:scheduled_at] : ""
+          purpose = tool_result.is_a?(Hash) ? tool_result[:purpose] : ""
+          messages << { role: "tool", content: "[スケジュール追加] #{time} — #{purpose}", participant: "system" }
+        when "cancel_schedule"
+          purpose = tool_result.is_a?(Hash) ? tool_result[:purpose] : ""
+          messages << { role: "tool", content: "[スケジュールキャンセル] #{purpose}", participant: "system" }
+        when "list_schedules"
+          schedules = tool_result.is_a?(Hash) ? tool_result[:schedules] : ""
+          messages << { role: "tool", content: "[スケジュール確認]\n#{schedules}", participant: "system" }
         when "read_memory"
           text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
           messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }

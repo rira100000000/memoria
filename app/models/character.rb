@@ -2,6 +2,7 @@ class Character < ApplicationRecord
   belongs_to :user
   has_many :chat_session_records, dependent: :destroy
   has_many :channel_bindings, dependent: :destroy
+  has_many :scheduled_wakeups, dependent: :destroy
 
   validates :name, presence: true
 

@@ -44,6 +44,16 @@ module Thinking
         end
       end
 
+      # 今後のスケジュール
+      upcoming = character.scheduled_wakeups.upcoming.limit(5)
+      if upcoming.any?
+        lines << ""
+        lines << "今後の予定:"
+        upcoming.each do |s|
+          lines << "  #{s.scheduled_at.in_time_zone('Asia/Tokyo').strftime('%m/%d %H:%M')} — #{s.purpose}"
+        end
+      end
+
       lines.join("\n")
     end
 
