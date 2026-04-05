@@ -1,7 +1,7 @@
 module MemoriaCore
   class << self
     def vault_root
-      ENV.fetch("VAULT_ROOT", File.expand_path("~/memoria-vaults"))
+      File.expand_path(ENV.fetch("VAULT_ROOT", "~/memoria-vaults"))
     end
   end
 end
