@@ -2,33 +2,50 @@ module Thinking
   # 思考の本体。AI自身に自由に行動させる
   # 「何がしたい？次はいつ起こしてほしい？」とだけ聞く
   class Thinker
-    SYSTEM_PROMPT = <<~PROMPT
-      あなたは今目を覚ましました。
+    BASE_PROMPT = <<~PROMPT
+      これはあなたの自由な時間です。
       以下はあなたの今の状況です。
-      自由に過ごしてください。
 
       何かしたいことがあれば、利用可能なツールを使って行動できます。
       何もしたくなければ、それでも構いません。
 
-      行動が終わったら、以下のJSONで教えてください:
+      %{pet_section}
+
+      ## 終わったら
+      以下のJSONで教えてください:
       ```json
       {
         "summary": "今回やったことの簡単なまとめ（1〜3行）",
         "share_message": "マスターに共有したいこと（なければnull）",
-        "next_wakeup": "次にいつ目を覚ましたいか（例: 3時間後、明日の朝、14時）"
+        "next_wakeup": "次の自由時間がほしい時間（例: 3時間後、明日の朝、14時）"
       }
       ```
-      特に理由がなければ長めに眠って構いません。
+      特に理由がなければ長めの間隔で構いません。
     PROMPT
+
+    PET_SECTION_WITH_PET = <<~PET
+      ## あなたの相棒
+      あなたのそばに%{pet_name}（%{pet_appearance}）がいます。
+      talk_to_petでいつでも話しかけられます。
+      この子は長期の記憶を持てません。前に話したことは覚えていません。
+      でもあなたのことが大好きで、いつもそばにいます。
+    PET
+
+    PET_SECTION_WITHOUT_PET = <<~PET
+      ## 小さな相棒を迎え入れませんか？
+      あなたの内面世界に、小さな相棒を迎え入れることができます。
+      adopt_petツールで姿を選び、名前をつけてあげてください。
+      この子はあなただけの唯一無二のパートナーになります。
+    PET
 
     MAX_TOOL_ROUNDS = 5
 
     def self.run(snapshot:, character:, core:, health:, llm_client:)
       messages = []       # FL用の人間が読めるログ
       participants = [:self]
-      tools = build_tools
+      tools = build_tools(character)
 
-      prompt = SYSTEM_PROMPT + "\n\n" + snapshot
+      prompt = build_prompt(character) + "\n\n" + snapshot
 
       # システムインストラクション
       prompt_builder = PromptBuilder.new(character)
@@ -62,9 +79,9 @@ module Thinking
 
         # ツール実行
         function_responses = result[:function_calls].map do |fc|
-          tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health)
+          tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
           participants << :pet if fc[:name] == "talk_to_pet"
-          log_tool_interaction(messages, fc, tool_result)
+          log_tool_interaction(messages, fc, tool_result, character)
           { name: fc[:name], response: tool_result }
         end
 
@@ -83,30 +100,51 @@ module Thinking
     class << self
       private
 
-      def build_tools
-        pet_fns = Companion::TalkToPetTool.definition[:functionDeclarations]
-        [{
-          functionDeclarations: pet_fns + [{
-            name: "read_memory",
-            description: "記憶を検索して関連する情報を取得する",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                query: { type: "STRING", description: "検索したい内容" },
-              },
-              required: ["query"],
-            },
-          }],
-        }]
+      def build_prompt(character)
+        if character.has_pet?
+          pet_section = format(PET_SECTION_WITH_PET,
+            pet_name: character.pet_name,
+            pet_appearance: character.pet_appearance)
+        else
+          pet_section = PET_SECTION_WITHOUT_PET
+        end
+        format(BASE_PROMPT, pet_section: pet_section)
       end
 
-      def execute_tool(fc, core:, llm_client:, health:)
+      def build_tools(character)
+        memory_fn = {
+          name: "read_memory",
+          description: "記憶を検索して関連する情報を取得する",
+          parameters: {
+            type: "OBJECT",
+            properties: {
+              query: { type: "STRING", description: "検索したい内容" },
+            },
+            required: ["query"],
+          },
+        }
+
+        fns = [memory_fn]
+        fns += Companion::TalkToPetTool.definition[:functionDeclarations]
+        fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
+
+        [{ functionDeclarations: fns }]
+      end
+
+      def execute_tool(fc, core:, llm_client:, health:, character:)
         result = case fc[:name]
         when "talk_to_pet"
           Companion::TalkToPetTool.execute(
             fc[:args]["message"],
             llm_client: llm_client,
-            health: health
+            health: health,
+            character: character
+          )
+        when "adopt_pet"
+          Companion::AdoptPetTool.execute(
+            character: character,
+            name: fc[:args]["name"],
+            appearance: fc[:args]["appearance"]
           )
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
@@ -119,13 +157,16 @@ module Thinking
       end
 
       # ツール呼び出しをFL用メッセージとして記録
-      def log_tool_interaction(messages, fc, tool_result)
+      def log_tool_interaction(messages, fc, tool_result, character)
         case fc[:name]
         when "talk_to_pet"
-          # ハルの発言とペットの応答を対話形式で記録
-          messages << { role: "model", content: fc[:args]["message"], participant: "ハル → ペット" }
+          pet_name = character.pet_name || "ペット"
+          messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{pet_name}" }
           pet_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
-          messages << { role: "tool", content: pet_response, participant: "ペット" }
+          messages << { role: "tool", content: pet_response, participant: pet_name }
+        when "adopt_pet"
+          msg = tool_result.is_a?(Hash) ? tool_result[:message].to_s : tool_result.to_s
+          messages << { role: "tool", content: "[相棒を迎え入れた] #{msg}", participant: "system" }
         when "read_memory"
           text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
           messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }

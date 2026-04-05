@@ -13,6 +13,30 @@ class Character < ApplicationRecord
     File.join(user.vault_path, vault_dir_name)
   end
 
+  # --- ペット ---
+
+  def has_pet?
+    pet_config.present? && pet_config["name"].present?
+  end
+
+  def pet_name
+    pet_config&.dig("name")
+  end
+
+  def pet_appearance
+    pet_config&.dig("appearance")
+  end
+
+  def adopt_pet!(name:, appearance:)
+    update!(pet_config: {
+      "name" => name,
+      "appearance" => appearance,
+      "adopted_at" => Time.current.strftime("%Y-%m-%d %H:%M"),
+    })
+  end
+
+  # --- 思考ループ ---
+
   def enable_thinking_loop!
     update!(thinking_loop_enabled: true)
     ThinkingLoopWorker.perform_async(id)
