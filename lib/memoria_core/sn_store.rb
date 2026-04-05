@@ -35,6 +35,81 @@ module MemoriaCore
       @vault.list_markdown_files(SN_DIR)
     end
 
+    # SNをアーカイブ（ファイルは残すがfrontmatterにarchived: trueを付与）
+    def archive(base_name)
+      content = @vault.read(path_for(base_name))
+      return false unless content
+      fm, body = Frontmatter.parse(content)
+      return false unless fm
+      fm["archived"] = true
+      fm["archived_at"] = Time.now.strftime("%Y-%m-%d %H:%M")
+      @vault.write(path_for(base_name), Frontmatter.build(fm, body))
+      true
+    end
+
+    # 複数SNを1つに統合。元のSNはアーカイブされる
+    # @param base_names [Array<String>] 統合するSNのベース名
+    # @param merged_title [String] 統合後のタイトル
+    # @param merged_body [String] 統合後の本文
+    # @param llm_role_name [String]
+    # @return [String] 統合後SNのベース名
+    def merge(base_names, merged_title:, merged_body:, llm_role_name:)
+      # 元SNの情報を収集
+      all_tags = []
+      all_takeaways = []
+      all_full_logs = []
+      source = nil
+
+      base_names.each do |name|
+        content = @vault.read(path_for(name))
+        next unless content
+        fm, = Frontmatter.parse(content)
+        next unless fm
+        all_tags.concat(Array(fm["tags"]))
+        all_takeaways.concat(Array(fm["key_takeaways"]))
+        all_full_logs << fm["full_log"] if fm["full_log"]
+        source ||= fm["source"]
+      end
+
+      # 統合SNを作成
+      timestamp = Time.now.strftime("%Y%m%d%H%M")
+      merged_base = self.class.build_base_name(timestamp, merged_title)
+      merged_fm = {
+        "title" => merged_title,
+        "date" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+        "type" => "conversation_summary_merged",
+        "tags" => all_tags.uniq,
+        "key_takeaways" => all_takeaways.uniq,
+        "merged_from" => base_names.map { |n| "[[#{n}.md]]" },
+        "full_logs" => all_full_logs.uniq,
+        "participants" => ["User", llm_role_name],
+      }
+      merged_fm["source"] = source if source
+
+      save("#{merged_base}.md", merged_fm, merged_body)
+
+      # 元SNをアーカイブ
+      base_names.each { |name| archive(name) }
+
+      merged_base
+    end
+
+    # アーカイブされていないSNのみ返す
+    def list_active
+      list.select { |path|
+        content = @vault.read(path)
+        next false unless content
+        fm, = Frontmatter.parse(content)
+        fm&.dig("archived") != true
+      }
+    end
+
+    # 特定日のSNを返す
+    def list_by_date(date)
+      date_str = date.strftime("%Y%m%d")
+      list.select { |path| File.basename(path).include?(date_str) }
+    end
+
     # タイムスタンプとタイトルからベース名を生成
     def self.build_base_name(timestamp, title)
       sanitized = title.gsub(/[\\\/:"*?<>|#^\[\]]/, "").gsub(/\s+/, "_")[0, 50]
