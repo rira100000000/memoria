@@ -82,7 +82,15 @@ class ChatSession
 
       function_responses = result[:function_calls].map do |fc|
         tool_result = execute_tool(fc[:name], fc[:args])
-        { name: fc[:name], response: tool_result }
+        Rails.logger.debug("[ChatSession] Tool call: #{fc[:name]}(#{fc[:args].to_json.slice(0, 100)})") if defined?(Rails)
+
+        # ツールがFLに記録すべき会話を返した場合、記録する
+        if tool_result.is_a?(Hash) && tool_result[:log]
+          tool_result[:log].each { |entry| @chat_logger.log_ai_message(entry) }
+        end
+
+        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log) : tool_result
+        { name: fc[:name], response: api_response }
       end
 
       result = @llm_client.send_function_response(
