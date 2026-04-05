@@ -64,11 +64,7 @@ module Thinking
         function_responses = result[:function_calls].map do |fc|
           tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health)
           participants << :pet if fc[:name] == "talk_to_pet"
-          messages << {
-            role: "tool",
-            content: "[#{fc[:name]}] #{summarize_tool_result(fc[:name], tool_result)}",
-            participant: fc[:name],
-          }
+          log_tool_interaction(messages, fc, tool_result)
           { name: fc[:name], response: tool_result }
         end
 
@@ -122,25 +118,28 @@ module Thinking
         result.is_a?(Hash) ? result : { response: result.to_s }
       end
 
+      # ツール呼び出しをFL用メッセージとして記録
+      def log_tool_interaction(messages, fc, tool_result)
+        case fc[:name]
+        when "talk_to_pet"
+          # ハルの発言とペットの応答を対話形式で記録
+          messages << { role: "model", content: fc[:args]["message"], participant: "ハル → ペット" }
+          pet_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
+          messages << { role: "tool", content: pet_response, participant: "ペット" }
+        when "read_memory"
+          text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
+          messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }
+        else
+          messages << { role: "tool", content: "[#{fc[:name]}] #{tool_result.to_s.slice(0, 200)}", participant: fc[:name] }
+        end
+      end
+
       def execute_read_memory(query, core:, llm_client:)
         embedding_store = MemoriaCore::EmbeddingStore.new(core.vault, llm_client)
         embedding_store.initialize!
         retriever = MemoriaCore::ContextRetriever.new(core.vault, embedding_store)
         result = retriever.retrieve(query)
         { results: result[:llm_context_prompt] }
-      end
-
-      # ツール結果をFL用に要約（read_memoryの巨大なレスポンスを短縮）
-      def summarize_tool_result(name, result)
-        case name
-        when "read_memory"
-          text = result[:results].to_s
-          "#{text.length}文字の記憶を検索"
-        when "talk_to_pet"
-          result.to_s.slice(0, 200)
-        else
-          result.to_s.slice(0, 200)
-        end
       end
 
       def load_behavior_principles(core)
