@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_05_045828) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_05_055739) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -86,6 +86,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_045828) do
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
 
+  create_table "scheduled_wakeups", force: :cascade do |t|
+    t.string "action"
+    t.bigint "character_id", null: false
+    t.datetime "created_at", null: false
+    t.string "purpose", null: false
+    t.datetime "scheduled_at", null: false
+    t.string "sidekiq_job_id"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["character_id", "status", "scheduled_at"], name: "idx_on_character_id_status_scheduled_at_c61cfa83a8"
+    t.index ["character_id"], name: "index_scheduled_wakeups_on_character_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "api_token", null: false
     t.datetime "created_at", null: false
@@ -104,4 +117,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_045828) do
   add_foreign_key "chat_results", "users"
   add_foreign_key "chat_sessions", "characters"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "scheduled_wakeups", "characters"
 end
