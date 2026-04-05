@@ -67,16 +67,25 @@ def build_pet_tools(character)
     MemoriaCore::Core.new(character.vault_path)
   ) rescue {}
 
+  pet_name = character.pet_name || "ペット"
+
   executor = ->(name, args) {
     case name
     when "talk_to_pet"
-      response = Companion::TalkToPetTool.execute(
+      pet_response = Companion::TalkToPetTool.execute(
         args["message"],
         llm_client: LlmClient.new,
         health: health,
         character: character
       )
-      response.is_a?(Hash) ? response : { response: response.to_s }
+      pet_text = pet_response.is_a?(Hash) ? pet_response[:response].to_s : pet_response.to_s
+      {
+        response: pet_text,
+        log: [
+          "#{character.name} → #{pet_name}: #{args["message"]}",
+          "#{pet_name}: #{pet_text}",
+        ],
+      }
     end
     # nilを返すとChatSessionの内蔵ツールにフォールバック
   }
