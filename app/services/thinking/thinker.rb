@@ -77,9 +77,13 @@ module Thinking
         if result[:text].present?
           messages << { role: "model", content: result[:text], participant: character.name }
 
-          # 直前にread_aozoraでチャンクを読んでいた場合、応答を感想として蓄積
+          # 直前にread_aozoraでチャンクを読んでいた場合、読書ノートを蓄積
           if last_reading_context
-            save_reading_note(last_reading_context[:progress_id], result[:text])
+            save_reading_note(
+              last_reading_context[:progress_id],
+              chunk_text: last_reading_context[:chunk_text],
+              llm_client: llm_client, character: character
+            )
             last_reading_context = nil
           end
         end
@@ -103,6 +107,7 @@ module Thinking
             last_reading_context = {
               progress_id: tool_result[:reading_progress_id],
               finished: tool_result[:finished],
+              chunk_text: tool_result[:chunk],
             }
             recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
             tool_result[:recalled_memories] = recalled if recalled.present?
@@ -125,10 +130,13 @@ module Thinking
         }
       end
 
-      # ループ終了時にまだ蓄積されていない読書コンテキストがあれば、最終応答をnoteとして保存
+      # ループ終了時にまだ蓄積されていない読書コンテキストがあれば読書ノートを保存
       if last_reading_context
-        last_model = messages.reverse.find { |m| m[:role] == "model" }
-        save_reading_note(last_reading_context[:progress_id], last_model[:content]) if last_model
+        save_reading_note(
+          last_reading_context[:progress_id],
+          chunk_text: last_reading_context[:chunk_text],
+          llm_client: llm_client, character: character
+        )
       end
 
       ThinkingResult.parse(messages, participants: participants.uniq, reading_occurred: reading_occurred)
@@ -287,12 +295,81 @@ module Thinking
         nil
       end
 
-      def save_reading_note(progress_id, note_text)
+      def save_reading_note(progress_id, chunk_text: nil, llm_client: nil, character: nil)
         progress = ReadingProgress.find_by(id: progress_id)
         return unless progress
-        progress.append_note(note_text, chunk_range: progress.current_position.to_s)
+        return unless llm_client && chunk_text.present? && character
+
+        entries = []
+
+        # 最初のチャンク: 伴走者とのアイスブレイク
+        if progress.parsed_notes.empty?
+          ice_break = Reading::ReadingCompanion.ice_break(
+            work_title: progress.title,
+            work_author: progress.author,
+            character_name: character.name,
+            llm_client: llm_client
+          )
+          if ice_break.present?
+            entries << { "type" => "dialogue", "speaker" => "companion", "text" => ice_break }
+          end
+        end
+
+        # 原文チャンク
+        entries << {
+          "type" => "narration",
+          "text" => chunk_text,
+          "chunk_range" => progress.current_position.to_s,
+        }
+
+        # キャラクターの読書感想を専用LLM呼び出しで生成
+        impression = generate_reading_impression(
+          chunk_text: chunk_text, character: character, progress: progress, llm_client: llm_client
+        )
+        if impression.present?
+          entries << { "type" => "dialogue", "speaker" => "hal", "text" => impression }
+
+          # 伴走者のレスポンス
+          companion_text = Reading::ReadingCompanion.respond(
+            hal_impression: impression,
+            chunk_text: chunk_text,
+            work_title: progress.title,
+            work_author: progress.author,
+            character_name: character.name,
+            llm_client: llm_client
+          )
+          if companion_text.present?
+            entries << { "type" => "dialogue", "speaker" => "companion", "text" => companion_text }
+          end
+        end
+
+        progress.append_reading_log(entries)
       rescue => e
         Rails.logger.warn("[Thinker] Failed to save reading note: #{e.message}")
+      end
+
+      def generate_reading_impression(chunk_text:, character:, progress:, llm_client:)
+        prompt = <<~PROMPT
+          今読んでいる作品: #{progress.author}「#{progress.title}」(#{progress.current_position}/#{progress.total_length}字)
+
+          原文:
+          #{chunk_text}
+
+          この部分を読んだ感想を、読書仲間の「トート」に話しかける形で2〜3文で述べてください。
+          印象に残った表現、感じた感情、気になった点など、素直な反応を。
+        PROMPT
+
+        system = <<~SYSTEM
+          あなたは#{character.name}です。#{character.system_prompt}
+          今、読書仲間の「トート」と一緒に本を読んでいます。
+          トートは同性の友人で、あなたより少し冷静で客観的な、包容力のあるお姉さんタイプ。
+          トートに向かって、読書中の素直な感想を短く述べてください。
+        SYSTEM
+        result = llm_client.generate(prompt, tier: :light, system_instruction: system)
+        result[:text]
+      rescue => e
+        Rails.logger.warn("[Thinker] Reading impression generation failed: #{e.message}")
+        nil
       end
 
       def load_behavior_principles(core)

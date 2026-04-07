@@ -40,7 +40,7 @@ module Reading
         ---
 
         あなたは#{progress.author}「#{progress.title}」を読了しました（全#{progress.total_length}字）。
-        以下は読書中にチャンクごとに書き留めた感想の記録です:
+        以下は読書中の原文・あなたの感想・読書伴走者との対話の記録です:
 
         ---
         #{notes_text}

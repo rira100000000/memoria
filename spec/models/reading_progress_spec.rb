@@ -54,19 +54,34 @@ RSpec.describe ReadingProgress, type: :model do
   end
 
   describe "#append_note" do
-    it "appends to empty notes" do
+    it "appends as dialogue entry" do
       rp = create(:reading_progress)
       rp.append_note("最初の感想", chunk_range: "800")
       expect(rp.parsed_notes.size).to eq(1)
-      expect(rp.parsed_notes.first["note"]).to eq("最初の感想")
-      expect(rp.parsed_notes.first["chunk_range"]).to eq("800")
+      expect(rp.parsed_notes.first["type"]).to eq("dialogue")
+      expect(rp.parsed_notes.first["speaker"]).to eq("hal")
+      expect(rp.parsed_notes.first["text"]).to eq("最初の感想")
+    end
+  end
+
+  describe "#append_reading_log" do
+    it "appends structured entries" do
+      rp = create(:reading_progress)
+      rp.append_reading_log([
+        { "type" => "narration", "text" => "原文テキスト", "chunk_range" => "800" },
+        { "type" => "dialogue", "speaker" => "hal", "text" => "感想" },
+        { "type" => "dialogue", "speaker" => "companion", "text" => "いいね" },
+      ])
+      expect(rp.parsed_notes.size).to eq(3)
+      expect(rp.parsed_notes[0]["type"]).to eq("narration")
+      expect(rp.parsed_notes[1]["speaker"]).to eq("hal")
+      expect(rp.parsed_notes[2]["speaker"]).to eq("companion")
     end
 
-    it "appends to existing notes" do
-      rp = create(:reading_progress, reading_notes: [{ "note" => "既存" }].to_json)
-      rp.append_note("追加の感想")
+    it "appends to existing entries" do
+      rp = create(:reading_progress, reading_notes: [{ "type" => "dialogue", "speaker" => "hal", "text" => "既存" }].to_json)
+      rp.append_reading_log([{ "type" => "dialogue", "speaker" => "companion", "text" => "追加" }])
       expect(rp.parsed_notes.size).to eq(2)
-      expect(rp.parsed_notes.last["note"]).to eq("追加の感想")
     end
   end
 
@@ -83,16 +98,26 @@ RSpec.describe ReadingProgress, type: :model do
   end
 
   describe "#combined_notes_text" do
-    it "joins notes with separator" do
+    it "formats new structured entries" do
       notes = [
-        { "chunk_range" => "800", "note" => "感想A" },
-        { "chunk_range" => "1600", "note" => "感想B" },
+        { "type" => "narration", "text" => "メロスは激怒した。" },
+        { "type" => "dialogue", "speaker" => "hal", "text" => "すごい出だし！" },
+        { "type" => "dialogue", "speaker" => "companion", "text" => "どこが気になった？" },
+      ]
+      rp = create(:reading_progress, reading_notes: notes.to_json)
+      text = rp.combined_notes_text
+      expect(text).to include("【原文】メロスは激怒した。")
+      expect(text).to include("#{rp.character.name}: すごい出だし！")
+      expect(text).to include("トート: どこが気になった？")
+    end
+
+    it "handles legacy format" do
+      notes = [
+        { "chunk_range" => "800", "note" => "旧形式の感想" },
       ]
       rp = build(:reading_progress, reading_notes: notes.to_json)
       text = rp.combined_notes_text
-      expect(text).to include("(800字目) 感想A")
-      expect(text).to include("(1600字目) 感想B")
-      expect(text).to include("---")
+      expect(text).to include("(800字目) 旧形式の感想")
     end
   end
 end

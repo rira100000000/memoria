@@ -1,7 +1,7 @@
 module Reading
   class AozoraTool
-    CHUNK_TARGET = 800
-    CHUNK_SEARCH_RANGE = 200
+    CHUNK_TARGET = 300
+    CHUNK_SEARCH_RANGE = 100
     MAX_DAILY_SESSIONS = 2
 
     def self.definition

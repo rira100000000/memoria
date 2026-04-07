@@ -20,13 +20,20 @@ class ReadingProgress < ApplicationRecord
   # --- 読書ノート ---
 
   def append_note(note_text, chunk_range: nil)
-    entries = parsed_notes
-    entries << {
+    append_reading_log([{
+      "type" => "dialogue",
+      "speaker" => "hal",
+      "text" => note_text,
       "chunk_range" => chunk_range,
-      "note" => note_text,
-      "timestamp" => Time.current.iso8601,
-    }
-    update!(reading_notes: entries.to_json)
+    }])
+  end
+
+  def append_reading_log(entries)
+    all = parsed_notes
+    entries.each do |entry|
+      all << entry.merge("timestamp" => Time.current.iso8601)
+    end
+    update!(reading_notes: all.to_json)
   end
 
   def parsed_notes
@@ -38,8 +45,16 @@ class ReadingProgress < ApplicationRecord
 
   def combined_notes_text
     parsed_notes.map { |entry|
-      range = entry["chunk_range"] ? "(#{entry["chunk_range"]}字目) " : ""
-      "#{range}#{entry["note"]}"
-    }.join("\n\n---\n\n")
+      if entry["type"] == "narration"
+        "【原文】#{entry["text"]&.slice(0, 200)}…"
+      elsif entry["type"] == "dialogue"
+        speaker = entry["speaker"] == "hal" ? character.name : Reading::ReadingCompanion::NAME
+        "#{speaker}: #{entry["text"]}"
+      else
+        # 旧形式との互換
+        range = entry["chunk_range"] ? "(#{entry["chunk_range"]}字目) " : ""
+        "#{range}#{entry["note"] || entry["text"]}"
+      end
+    }.join("\n\n")
   end
 end
