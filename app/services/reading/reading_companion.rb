@@ -14,9 +14,9 @@ module Reading
       一人称は「私」。
     PROMPT
 
-    def initialize(llm_client:)
+    def initialize(llm_client:, for_character: nil)
       @llm_client = llm_client
-      @character = self.class.find_character
+      @character = self.class.find_character(for_character: for_character)
       @retriever = nil
 
       if @character
@@ -67,9 +67,10 @@ module Reading
       nil
     end
 
-    # トートのCharacterレコードを返す（未作成ならnil）
-    def self.find_character
-      Character.find_by(name: NAME)
+    # 読書するキャラクターに紐づいた伴走者を返す（未設定ならnil）
+    def self.find_character(for_character: nil)
+      return for_character.reading_companion if for_character&.reading_companion
+      nil
     end
 
     private

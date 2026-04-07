@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_07_002403) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_07_091847) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -45,12 +45,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_002403) do
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.jsonb "pet_config"
+    t.bigint "reading_companion_id"
     t.boolean "reading_enabled", default: false, null: false
     t.text "system_prompt"
     t.boolean "thinking_loop_enabled", default: false, null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.string "vault_dir_name", null: false
+    t.index ["reading_companion_id"], name: "index_characters_on_reading_companion_id"
     t.index ["user_id"], name: "index_characters_on_user_id"
   end
 
@@ -131,6 +133,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_002403) do
   add_foreign_key "api_usage_logs", "characters"
   add_foreign_key "api_usage_logs", "users"
   add_foreign_key "channel_bindings", "characters"
+  add_foreign_key "characters", "characters", column: "reading_companion_id"
   add_foreign_key "characters", "users"
   add_foreign_key "chat_results", "characters"
   add_foreign_key "chat_results", "users"

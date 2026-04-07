@@ -1,5 +1,6 @@
 class Character < ApplicationRecord
   belongs_to :user
+  belongs_to :reading_companion, class_name: "Character", optional: true
   has_many :chat_session_records, dependent: :destroy
   has_many :channel_bindings, dependent: :destroy
   has_many :scheduled_wakeups, dependent: :destroy

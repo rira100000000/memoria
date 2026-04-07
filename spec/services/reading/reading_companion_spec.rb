@@ -56,15 +56,16 @@ RSpec.describe Reading::ReadingCompanion do
   end
 
   describe ".find_character" do
-    it "returns nil when character does not exist" do
-      expect(described_class.find_character).to be_nil
+    it "returns nil when no companion set" do
+      reader = create(:character)
+      expect(described_class.find_character(for_character: reader)).to be_nil
     end
 
-    it "returns character when exists" do
+    it "returns companion when set" do
       user = create(:user)
-      create(:character, user: user, name: "トート")
-      expect(described_class.find_character).to be_present
-      expect(described_class.find_character.name).to eq("トート")
+      companion = create(:character, user: user, name: "トート")
+      reader = create(:character, user: user, reading_companion: companion)
+      expect(described_class.find_character(for_character: reader)).to eq(companion)
     end
   end
 end

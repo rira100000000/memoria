@@ -128,7 +128,7 @@ class ThinkingLoopWorker
   end
 
   def generate_companion_reading_summary(completed, llm_client)
-    tote = Reading::ReadingCompanion.find_character
+    tote = Reading::ReadingCompanion.find_character(for_character: completed.character)
     return unless tote
 
     service = Reading::ReadingSummaryService.new(tote, llm_client: llm_client)

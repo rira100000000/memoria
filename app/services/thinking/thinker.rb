@@ -302,7 +302,7 @@ module Thinking
 
         entries = []
 
-        companion = Reading::ReadingCompanion.new(llm_client: llm_client)
+        companion = Reading::ReadingCompanion.new(llm_client: llm_client, for_character: character)
 
         # 最初のチャンク: 伴走者とのアイスブレイク
         if progress.parsed_notes.empty?
