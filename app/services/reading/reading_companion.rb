@@ -46,17 +46,14 @@ module Reading
       nil
     end
 
-    def respond(hal_impression:, chunk_text:, work_title:, work_author:, character_name:)
-      memories = recall("#{hal_impression}")
+    def respond(message:, work_title:, work_author:, character_name:)
+      memories = recall(message)
 
       prompt = <<~PROMPT
         今読んでいる作品: #{work_author}「#{work_title}」
 
-        原文（抜粋）:
-        #{chunk_text.slice(0, 400)}
-
-        #{character_name}の感想:
-        #{hal_impression}
+        #{character_name}:
+        #{message}
         #{memories_section(memories)}
       PROMPT
 

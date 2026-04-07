@@ -11,8 +11,7 @@ RSpec.describe Reading::ReadingCompanion do
     it "returns companion response" do
       companion = described_class.new(llm_client: llm_client)
       result = companion.respond(
-        hal_impression: "メロスの激怒がすごい！",
-        chunk_text: "メロスは激怒した。必ず、かの邪智暴虐の王を除かなければならぬと決意した。",
+        message: "メロスの激怒がすごい！",
         work_title: "走れメロス",
         work_author: "太宰治",
         character_name: "ハル"
@@ -31,8 +30,7 @@ RSpec.describe Reading::ReadingCompanion do
       companion = described_class.new(llm_client: llm_client)
 
       result = companion.respond(
-        hal_impression: "test",
-        chunk_text: "test",
+        message: "test",
         work_title: "test",
         work_author: "test",
         character_name: "ハル"

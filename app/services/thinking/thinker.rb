@@ -99,20 +99,31 @@ module Thinking
         function_responses = result[:function_calls].map do |fc|
           tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
           participants << :pet if fc[:name] == "talk_to_pet"
+          participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
           log_tool_interaction(messages, fc, tool_result, character)
 
-          # 読書チャンクに対して記憶想起を実行し、感想蓄積用のコンテキストを保持
+          # 読書チャンク処理
           if fc[:name] == "read_aozora" && tool_result.is_a?(Hash) && tool_result[:chunk].present?
             reading_occurred = true
             last_reading_context = {
               progress_id: tool_result[:reading_progress_id],
-              finished: tool_result[:finished],
               chunk_text: tool_result[:chunk],
             }
             recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
             tool_result[:recalled_memories] = recalled if recalled.present?
           elsif fc[:name] != "read_aozora"
             has_non_reading_tool = true
+          end
+
+          # 読書伴走者との対話をreading_notesに記録
+          if fc[:name] == "talk_to_reading_companion" && tool_result.is_a?(Hash) && tool_result[:response]
+            progress = character.current_reading
+            if progress
+              progress.append_reading_log([
+                { "type" => "dialogue", "speaker" => "hal", "text" => fc[:args]["message"] },
+                { "type" => "dialogue", "speaker" => "companion", "text" => tool_result[:response] },
+              ])
+            end
           end
 
           { name: fc[:name], response: tool_result }
@@ -176,7 +187,10 @@ module Thinking
         fns += Thinking::WebSearchTool.definition[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
-        fns += Reading::AozoraTool.definition[:functionDeclarations] if character.reading_enabled?
+        if character.reading_enabled?
+          fns += Reading::AozoraTool.definition[:functionDeclarations]
+          fns += Reading::TalkToCompanionTool.definition[:functionDeclarations] if character.reading_companion
+        end
 
         [{ functionDeclarations: fns }]
       end
@@ -208,6 +222,13 @@ module Thinking
             genre: fc[:args]["genre"],
             query: fc[:args]["query"],
             work_id: fc[:args]["work_id"],
+            character: character,
+            llm_client: llm_client
+          )
+        when "talk_to_reading_companion"
+          Reading::TalkToCompanionTool.execute(
+            fc[:args]["message"],
+            llm_client: llm_client,
             character: character
           )
         when "read_memory"
@@ -228,6 +249,11 @@ module Thinking
           messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{pet_name}" }
           pet_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
           messages << { role: "tool", content: pet_response, participant: pet_name }
+        when "talk_to_reading_companion"
+          companion_name = Reading::ReadingCompanion::NAME
+          messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{companion_name}" }
+          companion_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
+          messages << { role: "tool", content: companion_response, participant: companion_name }
         when "adopt_pet"
           msg = tool_result.is_a?(Hash) ? tool_result[:message].to_s : tool_result.to_s
           messages << { role: "tool", content: "[相棒を迎え入れた] #{msg}", participant: "system" }
@@ -297,79 +323,31 @@ module Thinking
 
       def save_reading_note(progress_id, chunk_text: nil, llm_client: nil, character: nil)
         progress = ReadingProgress.find_by(id: progress_id)
-        return unless progress
-        return unless llm_client && chunk_text.present? && character
+        return unless progress && chunk_text.present?
 
         entries = []
 
-        companion = Reading::ReadingCompanion.new(llm_client: llm_client, for_character: character)
-
         # 最初のチャンク: 伴走者とのアイスブレイク
-        if progress.parsed_notes.empty?
+        if progress.parsed_notes.empty? && llm_client && character&.reading_companion
+          companion = Reading::ReadingCompanion.new(llm_client: llm_client, for_character: character)
           ice_break = companion.ice_break(
             work_title: progress.title,
             work_author: progress.author,
             character_name: character.name
           )
-          if ice_break.present?
-            entries << { "type" => "dialogue", "speaker" => "companion", "text" => ice_break }
-          end
+          entries << { "type" => "dialogue", "speaker" => "companion", "text" => ice_break } if ice_break.present?
         end
 
-        # 原文チャンク
+        # 原文チャンクを記録
         entries << {
           "type" => "narration",
           "text" => chunk_text,
           "chunk_range" => progress.current_position.to_s,
         }
 
-        # キャラクターの読書感想を専用LLM呼び出しで生成
-        impression = generate_reading_impression(
-          chunk_text: chunk_text, character: character, progress: progress, llm_client: llm_client
-        )
-        if impression.present?
-          entries << { "type" => "dialogue", "speaker" => "hal", "text" => impression }
-
-          # 伴走者のレスポンス
-          companion_text = companion.respond(
-            hal_impression: impression,
-            chunk_text: chunk_text,
-            work_title: progress.title,
-            work_author: progress.author,
-            character_name: character.name
-          )
-          if companion_text.present?
-            entries << { "type" => "dialogue", "speaker" => "companion", "text" => companion_text }
-          end
-        end
-
         progress.append_reading_log(entries)
       rescue => e
         Rails.logger.warn("[Thinker] Failed to save reading note: #{e.message}")
-      end
-
-      def generate_reading_impression(chunk_text:, character:, progress:, llm_client:)
-        prompt = <<~PROMPT
-          今読んでいる作品: #{progress.author}「#{progress.title}」(#{progress.current_position}/#{progress.total_length}字)
-
-          原文:
-          #{chunk_text}
-
-          この部分を読んだ感想を、読書仲間の「トート」に話しかける形で2〜3文で述べてください。
-          印象に残った表現、感じた感情、気になった点など、素直な反応を。
-        PROMPT
-
-        system = <<~SYSTEM
-          あなたは#{character.name}です。#{character.system_prompt}
-          今、読書仲間の「トート」と一緒に本を読んでいます。
-          トートは同性の友人で、あなたより少し冷静で客観的な、包容力のあるお姉さんタイプ。
-          トートに向かって、読書中の素直な感想を短く述べてください。
-        SYSTEM
-        result = llm_client.generate(prompt, tier: :light, system_instruction: system)
-        result[:text]
-      rescue => e
-        Rails.logger.warn("[Thinker] Reading impression generation failed: #{e.message}")
-        nil
       end
 
       def load_behavior_principles(core)

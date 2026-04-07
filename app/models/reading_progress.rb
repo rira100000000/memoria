@@ -17,6 +17,22 @@ class ReadingProgress < ApplicationRecord
     update!(status: "abandoned", cached_text: nil)
   end
 
+  # --- チャンク分割 ---
+
+  def parsed_chunk_boundaries
+    return [] if chunk_boundaries.blank?
+    JSON.parse(chunk_boundaries)
+  rescue JSON::ParserError
+    []
+  end
+
+  def next_chunk_end(from_position)
+    boundaries = parsed_chunk_boundaries
+    return nil if boundaries.empty?
+    boundary = boundaries.find { |b| b["end"] > from_position }
+    boundary ? [boundary["end"], boundary["label"]] : nil
+  end
+
   # --- 読書ノート ---
 
   def append_note(note_text, chunk_range: nil)

@@ -1,7 +1,5 @@
 module Reading
   class AozoraTool
-    CHUNK_TARGET = 300
-    CHUNK_SEARCH_RANGE = 100
     MAX_DAILY_SESSIONS = 2
 
     def self.definition
@@ -35,16 +33,16 @@ module Reading
       }
     end
 
-    def self.execute(action:, genre: nil, query: nil, work_id: nil, character:)
+    def self.execute(action:, genre: nil, query: nil, work_id: nil, character:, llm_client: nil)
       case action
       when "search"
         search_works(query)
       when "read"
         return { error: "今日の読書回数の上限（#{MAX_DAILY_SESSIONS}回）に達しました" } unless can_read_today?(character)
-        read_work(character, work_id: work_id)
+        read_work(character, work_id: work_id, llm_client: llm_client)
       when "discover"
         return { error: "今日の読書回数の上限（#{MAX_DAILY_SESSIONS}回）に達しました" } unless can_read_today?(character)
-        discover(character, genre: genre)
+        discover(character, genre: genre, llm_client: llm_client)
       when "continue"
         return { error: "今日の読書回数の上限（#{MAX_DAILY_SESSIONS}回）に達しました" } unless can_read_today?(character)
         continue_reading(character)
@@ -74,10 +72,9 @@ module Reading
         end
       end
 
-      def read_work(character, work_id:)
+      def read_work(character, work_id:, llm_client: nil)
         return { error: "作品IDを指定してください" } if work_id.blank?
 
-        # 既に読んだ作品かチェック
         if ReadingProgress.exists?(character: character, work_id: work_id.to_s)
           return { error: "この作品は既に読んだことがあります（作品ID: #{work_id}）" }
         end
@@ -88,26 +85,10 @@ module Reading
         text = TextFetcher.fetch(work)
         return { error: "テキストの取得に失敗しました" } unless text
 
-        chunk_end = find_chunk_end(text, 0)
-        finished = chunk_end >= text.length
-
-        progress = ReadingProgress.create!(
-          character: character,
-          work_id: work["作品ID"],
-          title: work["作品名"],
-          author: "#{work["姓"]}#{work["名"]}",
-          source_info: build_source_info(work),
-          cached_text: text,
-          total_length: text.length,
-          current_position: chunk_end,
-          status: finished ? "completed" : "reading"
-        )
-
-        chunk = text[0...chunk_end]
-        build_response(progress, chunk)
+        start_reading(character, work, text, llm_client: llm_client)
       end
 
-      def discover(character, genre: nil)
+      def discover(character, genre: nil, llm_client: nil)
         read_ids = ReadingProgress.where(character: character).pluck(:work_id)
         work = AozoraCatalog.random_pick(genre: genre, exclude_ids: read_ids)
         return { error: "条件に合う未読の作品が見つかりません" } unless work
@@ -115,8 +96,18 @@ module Reading
         text = TextFetcher.fetch(work)
         return { error: "テキストの取得に失敗しました" } unless text
 
-        chunk_end = find_chunk_end(text, 0)
-        finished = chunk_end >= text.length
+        start_reading(character, work, text, llm_client: llm_client)
+      end
+
+      def start_reading(character, work, text, llm_client: nil)
+        boundaries = if llm_client
+          ChunkPreprocessor.call(text, llm_client: llm_client)
+        else
+          ChunkPreprocessor.send(:fallback_boundaries, text)
+        end
+
+        chunk_end = boundaries.first["end"]
+        finished = boundaries.size == 1
 
         progress = ReadingProgress.create!(
           character: character,
@@ -127,11 +118,12 @@ module Reading
           cached_text: text,
           total_length: text.length,
           current_position: chunk_end,
+          chunk_boundaries: boundaries.to_json,
           status: finished ? "completed" : "reading"
         )
 
         chunk = text[0...chunk_end]
-        build_response(progress, chunk)
+        build_response(progress, chunk, chunk_label: boundaries.first["label"])
       end
 
       def continue_reading(character)
@@ -143,7 +135,16 @@ module Reading
         start_pos = progress.current_position
         return build_response(progress, "") if start_pos >= text.length
 
-        chunk_end = find_chunk_end(text, start_pos)
+        # chunk_boundariesから次のチャンクを取得
+        result = progress.next_chunk_end(start_pos)
+        if result
+          chunk_end, label = result
+        else
+          # フォールバック: 残り全部
+          chunk_end = text.length
+          label = ""
+        end
+
         finished = chunk_end >= text.length
 
         progress.update!(
@@ -153,47 +154,15 @@ module Reading
         progress.update_column(:cached_text, nil) if finished
 
         chunk = text[start_pos...chunk_end]
-        build_response(progress, chunk)
+        build_response(progress, chunk, chunk_label: label)
       end
 
-      # 自然な区切り位置を探す
-      # target付近の「。」→「\n」→ 強制切断 の優先順で探索
-      def find_chunk_end(text, start_pos)
-        target = start_pos + CHUNK_TARGET
-        return text.length if target >= text.length
-
-        search_start = [target - CHUNK_SEARCH_RANGE, start_pos].max
-        search_end = [target + CHUNK_SEARCH_RANGE, text.length].min
-        search_region = text[search_start...search_end]
-
-        # 「。」で区切る（target以降で最初の句点を優先）
-        relative_target = target - search_start
-        after_region = search_region[relative_target..]
-        if after_region && (pos = after_region.index("。"))
-          return search_start + relative_target + pos + 1
-        end
-        before_region = search_region[0...relative_target]
-        if before_region && (pos = before_region.rindex("。"))
-          return search_start + pos + 1
-        end
-
-        # 「\n」で区切る
-        if after_region && (pos = after_region.index("\n"))
-          return search_start + relative_target + pos + 1
-        end
-        if before_region && (pos = before_region.rindex("\n"))
-          return search_start + pos + 1
-        end
-
-        # 強制切断
-        target
-      end
-
-      def build_response(progress, chunk)
+      def build_response(progress, chunk, chunk_label: nil)
         {
           title: progress.title,
           author: progress.author,
           chunk: chunk,
+          chunk_label: chunk_label,
           progress: "#{progress.current_position}/#{progress.total_length}字",
           finished: progress.status == "completed",
           source: progress.source_info,

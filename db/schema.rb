@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_07_101957) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -93,6 +93,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_101957) do
     t.string "author", null: false
     t.text "cached_text"
     t.bigint "character_id", null: false
+    t.text "chunk_boundaries"
     t.datetime "created_at", null: false
     t.integer "current_position", default: 0
     t.text "reading_notes"

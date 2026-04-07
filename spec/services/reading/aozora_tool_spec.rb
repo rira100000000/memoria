@@ -17,9 +17,12 @@ RSpec.describe Reading::AozoraTool do
 
   let(:sample_text) { "メロスは激怒した。" * 200 } # ~1800 chars
 
+  let(:boundaries) { [{ "end" => 800, "label" => "前半" }, { "end" => sample_text.length, "label" => "後半" }] }
+
   before do
     allow(Reading::AozoraCatalog).to receive(:random_pick).and_return(work_row)
     allow(Reading::TextFetcher).to receive(:fetch).and_return(sample_text)
+    allow(Reading::ChunkPreprocessor).to receive(:call).and_return(boundaries)
   end
 
   describe ".definition" do
@@ -51,6 +54,7 @@ RSpec.describe Reading::AozoraTool do
       it "marks short works as completed immediately" do
         short_text = "短い話。おわり。"
         allow(Reading::TextFetcher).to receive(:fetch).and_return(short_text)
+        allow(Reading::ChunkPreprocessor).to receive(:call).and_return([{ "end" => short_text.length, "label" => "全文" }])
 
         result = described_class.execute(action: "discover", character: character)
         expect(result[:finished]).to be true
@@ -76,18 +80,19 @@ RSpec.describe Reading::AozoraTool do
     end
 
     context "continue" do
-      it "returns next chunk from cached text" do
+      it "returns next chunk based on chunk_boundaries" do
         create(:reading_progress,
           character: character,
           work_id: "1567",
           cached_text: sample_text,
           current_position: 100,
           total_length: sample_text.length,
+          chunk_boundaries: [{ "end" => 800, "label" => "前半" }, { "end" => sample_text.length, "label" => "後半" }].to_json,
           status: "reading")
 
         result = described_class.execute(action: "continue", character: character)
         expect(result[:chunk]).to be_present
-        expect(result[:title]).to eq("走れメロス")
+        expect(result[:chunk_label]).to eq("前半")
       end
 
       it "returns error when no reading in progress" do
@@ -102,11 +107,26 @@ RSpec.describe Reading::AozoraTool do
           cached_text: "短いテキスト。",
           current_position: 0,
           total_length: 7,
+          chunk_boundaries: [{ "end" => 7, "label" => "全文" }].to_json,
           status: "reading")
 
         result = described_class.execute(action: "continue", character: character)
         expect(result[:finished]).to be true
         expect(ReadingProgress.last.status).to eq("completed")
+      end
+
+      it "falls back to remaining text when no chunk_boundaries" do
+        create(:reading_progress,
+          character: character,
+          work_id: "1567",
+          cached_text: "テスト用のテキスト。",
+          current_position: 0,
+          total_length: 10,
+          chunk_boundaries: nil,
+          status: "reading")
+
+        result = described_class.execute(action: "continue", character: character)
+        expect(result[:finished]).to be true
       end
     end
 
@@ -187,31 +207,4 @@ RSpec.describe Reading::AozoraTool do
     end
   end
 
-  describe ".find_chunk_end" do
-    it "splits at 。 near target" do
-      target = described_class::CHUNK_TARGET
-      text = "あ" * (target - 100) + "。" + "い" * 500
-      result = described_class.send(:find_chunk_end, text, 0)
-      expect(text[result - 1]).to eq("。")
-    end
-
-    it "splits at newline if no 。 found" do
-      target = described_class::CHUNK_TARGET
-      text = "あ" * (target - 100) + "\n" + "い" * 500
-      result = described_class.send(:find_chunk_end, text, 0)
-      expect(result).to eq(target - 100 + 1)
-    end
-
-    it "falls back to target when no delimiter found" do
-      text = "あ" * 5000
-      result = described_class.send(:find_chunk_end, text, 0)
-      expect(result).to eq(Reading::AozoraTool::CHUNK_TARGET)
-    end
-
-    it "returns text length if target exceeds text" do
-      text = "短い文章。"
-      result = described_class.send(:find_chunk_end, text, 0)
-      expect(result).to eq(text.length)
-    end
-  end
 end
