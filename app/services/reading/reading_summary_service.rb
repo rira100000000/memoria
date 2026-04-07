@@ -27,6 +27,19 @@ module Reading
       save_summary_note(parsed, reading_progress)
     end
 
+    # トート視点のSN生成
+    def generate_companion_summary_for(reading_progress, reader_name:)
+      notes_text = reading_progress.combined_notes_text
+      return nil if notes_text.blank?
+
+      prompt = build_companion_prompt(reading_progress, notes_text, reader_name)
+      result = @llm_client.generate(prompt)
+      parsed = parse_json_response(result[:text])
+      return nil unless parsed
+
+      save_summary_note(parsed, reading_progress)
+    end
+
     private
 
     def build_integrated_prompt(progress, notes_text)
@@ -104,6 +117,39 @@ module Reading
           "keyTakeaways": ["途中まで読んで得た気づきを1～3点"],
           "actionItems": ["#{@character.name}: 今後の読書計画"],
           "reflectionBody": "途中までの読書感想（マークダウン形式）",
+          "semanticDefinitions": [{"tag": "概念名", "definition": "作品を通じて理解した概念の定義"}]
+        }
+        ```
+        JSONオブジェクトのみを返し、他のテキストは含めないでください。
+      PROMPT
+    end
+
+    def build_companion_prompt(progress, notes_text, reader_name)
+      <<~PROMPT
+        あなたは#{@character.name}です。
+        #{@character.system_prompt}
+
+        #{reader_name}と一緒に#{progress.author}「#{progress.title}」を読みました（全#{progress.total_length}字）。
+
+        以下は読書中の記録です:
+        ---
+        #{notes_text}
+        ---
+
+        この読書体験をあなた（#{@character.name}）の視点で振り返ってください。
+        #{reader_name}がどんな反応をしていたか、どんな場面で心が動いていたか、
+        あなた自身がこの作品からどんな印象を受けたかを記録してください。
+
+        tagsには必ず "reading" と、著者名・作品名を含めてください。
+
+        ```json
+        {
+          "conversationTitle": "#{reader_name}との読書記録のタイトル（10語以内、作品名を含む）",
+          "tags": ["reading", "著者名", "作品名", "#{reader_name}"],
+          "mood": "読後の気分を表す言葉",
+          "keyTakeaways": ["#{reader_name}の印象的な反応を1〜3点"],
+          "actionItems": [],
+          "reflectionBody": "読書伴走の振り返り（マークダウン形式）",
           "semanticDefinitions": [{"tag": "概念名", "definition": "作品を通じて理解した概念の定義"}]
         }
         ```

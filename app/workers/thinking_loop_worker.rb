@@ -115,13 +115,30 @@ class ThinkingLoopWorker
       .first
     return unless completed
 
+    # キャラクターのSN生成
     service = Reading::ReadingSummaryService.new(character, llm_client: llm_client)
     reflection = service.generate_for(completed)
-
     process_reflection(reflection, core, character) if reflection
+
+    # トートのSN生成
+    generate_companion_reading_summary(completed, llm_client)
 
     # 統合SN生成後、notesをクリア
     completed.update!(reading_notes: nil)
+  end
+
+  def generate_companion_reading_summary(completed, llm_client)
+    tote = Reading::ReadingCompanion.find_character
+    return unless tote
+
+    service = Reading::ReadingSummaryService.new(tote, llm_client: llm_client)
+    reflection = service.generate_companion_summary_for(completed, reader_name: completed.character.name)
+    return unless reflection
+
+    tote_core = MemoriaCore::Core.new(tote.vault_path)
+    process_reflection(reflection, tote_core, tote)
+  rescue => e
+    Rails.logger.warn("[ThinkingLoopWorker] Companion summary failed: #{e.message}")
   end
 
   def build_usage_tracker(user, character)

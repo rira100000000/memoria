@@ -302,13 +302,14 @@ module Thinking
 
         entries = []
 
+        companion = Reading::ReadingCompanion.new(llm_client: llm_client)
+
         # 最初のチャンク: 伴走者とのアイスブレイク
         if progress.parsed_notes.empty?
-          ice_break = Reading::ReadingCompanion.ice_break(
+          ice_break = companion.ice_break(
             work_title: progress.title,
             work_author: progress.author,
-            character_name: character.name,
-            llm_client: llm_client
+            character_name: character.name
           )
           if ice_break.present?
             entries << { "type" => "dialogue", "speaker" => "companion", "text" => ice_break }
@@ -330,13 +331,12 @@ module Thinking
           entries << { "type" => "dialogue", "speaker" => "hal", "text" => impression }
 
           # 伴走者のレスポンス
-          companion_text = Reading::ReadingCompanion.respond(
+          companion_text = companion.respond(
             hal_impression: impression,
             chunk_text: chunk_text,
             work_title: progress.title,
             work_author: progress.author,
-            character_name: character.name,
-            llm_client: llm_client
+            character_name: character.name
           )
           if companion_text.present?
             entries << { "type" => "dialogue", "speaker" => "companion", "text" => companion_text }

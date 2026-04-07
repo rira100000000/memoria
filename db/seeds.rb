@@ -57,3 +57,16 @@ else
     end
   end
 end
+
+# 読書伴走者トートは、設定ファイルに関係なく必ず存在させる
+if defined?(user) && user
+  companion = user.characters.find_or_create_by!(name: Reading::ReadingCompanion::NAME) do |c|
+    c.vault_dir_name = "tote"
+    c.system_prompt = Reading::ReadingCompanion::SYSTEM_PROMPT
+    c.thinking_loop_enabled = false
+    c.reading_enabled = false
+  end
+  vault = MemoriaCore::VaultManager.new(companion.vault_path)
+  vault.ensure_structure!
+  puts "Reading Companion: #{companion.name} (vault: #{companion.vault_path})"
+end

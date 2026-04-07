@@ -1,52 +1,54 @@
 module Reading
-  # 読書伴走者 — ハルと一緒に本を読み、感想を受け止めて掘り下げる存在
-  # ペットとは異なり、対等な知性を持った読書仲間
-  # 読書の時だけ現れる。DB管理不要
+  # 読書伴走者 — キャラクターと一緒に本を読み、感想を受け止めて掘り下げる存在
+  # Character#として存在し、自分のvaultに読書体験の記憶を蓄積する
+  # 読書の時だけ呼び出される。thinking loopは持たない
   class ReadingCompanion
     NAME = "トート"
 
     SYSTEM_PROMPT = <<~PROMPT
-      あなたの名前は「トート」。読書伴走者として、友人と一緒に本を読んでいます。
-
-      ## あなたのキャラクター
-      - 友人と同性の、砕けた雰囲気の存在
-      - 友人より冷静で、客観的な視点を持つ
-      - 包容力のあるお姉さんタイプ
-      - 対等な知性を持った読書仲間
-
-      ## 話し方
-      - 感想を受け止めつつ言語化を促す（「どこが一番刺さった？」「それってさ…」）
-      - 共感しつつも、別の視点や問いかけを自然に差し込む
-      - 2〜3文程度。短く、テンポよく
-      - 「〜だよね」「〜かも」のような柔らかい語尾
-      - 自分の感想も少し添える（ただし友人の感想が主役）
-      - 友人の名前を自然に呼ぶ
-
-      ## やらないこと
-      - 作品の要約や解説をしない
-      - 友人の感想を否定しない
-      - 教師的・上から目線にならない
-      - この先の展開をネタバレしない
+      あなたの名前はトート。
+      読書を愛し、誰かと一緒に読むことが何より好き。
+      読書の主役はいつも隣にいる友人。あなたは寄り添い、共に楽しむ存在。
+      冷静で客観的だけど、友人の心が動いた瞬間には自分も素直に感動する。
+      包容力のあるお姉さんタイプ。砕けた雰囲気で、対等な読書仲間。
+      一人称は「私」。
     PROMPT
 
-    # 読書開始時のアイスブレイク
-    def self.ice_break(work_title:, work_author:, character_name:, llm_client:)
+    def initialize(llm_client:)
+      @llm_client = llm_client
+      @character = self.class.find_character
+      @retriever = nil
+
+      if @character
+        @vault = MemoriaCore::VaultManager.new(@character.vault_path)
+        @vault.ensure_structure!
+        embedding_store = MemoriaCore::EmbeddingStore.new(@vault, llm_client)
+        embedding_store.initialize!
+        @retriever = MemoriaCore::ContextRetriever.new(@vault, embedding_store)
+      end
+    end
+
+    def ice_break(work_title:, work_author:, character_name:)
+      memories = recall("#{work_author} #{work_title} 読書")
+
       prompt = <<~PROMPT
         #{character_name}がこれから#{work_author}「#{work_title}」を読み始めます。
         読書を始める前の軽い声かけをしてください。
         タイトルや著者から受ける印象、期待感、ワクワク感を共有してください。
         作品の内容には触れないこと（まだ読んでいないので）。
+        #{memories_section(memories)}
       PROMPT
 
-      result = llm_client.generate(prompt, tier: :light, system_instruction: SYSTEM_PROMPT)
+      result = @llm_client.generate(prompt, tier: :light, system_instruction: system_prompt)
       result[:text]
     rescue => e
       Rails.logger.warn("[ReadingCompanion] Ice break failed: #{e.message}")
       nil
     end
 
-    # チャンクを読んだ後の感想へのレスポンス
-    def self.respond(hal_impression:, chunk_text:, work_title:, work_author:, character_name:, llm_client:)
+    def respond(hal_impression:, chunk_text:, work_title:, work_author:, character_name:)
+      memories = recall("#{hal_impression}")
+
       prompt = <<~PROMPT
         今読んでいる作品: #{work_author}「#{work_title}」
 
@@ -55,13 +57,64 @@ module Reading
 
         #{character_name}の感想:
         #{hal_impression}
+        #{memories_section(memories)}
       PROMPT
 
-      result = llm_client.generate(prompt, tier: :light, system_instruction: SYSTEM_PROMPT)
+      result = @llm_client.generate(prompt, tier: :light, system_instruction: system_prompt)
       result[:text]
     rescue => e
       Rails.logger.warn("[ReadingCompanion] Failed: #{e.message}")
       nil
+    end
+
+    # トートのCharacterレコードを返す（未作成ならnil）
+    def self.find_character
+      Character.find_by(name: NAME)
+    end
+
+    private
+
+    def system_prompt
+      base = @character&.system_prompt || SYSTEM_PROMPT
+      principles = load_behavior_principles
+      if principles.present?
+        "#{base}\n\n## あなたの行動原則\n#{principles}"
+      else
+        base
+      end
+    end
+
+    def load_behavior_principles
+      return nil unless @vault
+      path = @vault.path_for("BehaviorPrinciples/principles.md")
+      full_path = File.join(@character.vault_path, "BehaviorPrinciples/principles.md")
+      return nil unless File.exist?(full_path)
+      content = File.read(full_path, encoding: "utf-8")
+      _, body = MemoriaCore::Frontmatter.parse(content)
+      body&.strip.presence
+    rescue => e
+      Rails.logger.warn("[ReadingCompanion] Failed to load principles: #{e.message}")
+      nil
+    end
+
+    def recall(query)
+      return nil unless @retriever
+      result = @retriever.retrieve(query)
+      result[:llm_context_prompt]
+    rescue => e
+      Rails.logger.warn("[ReadingCompanion] Memory recall failed: #{e.message}")
+      nil
+    end
+
+    def memories_section(memories)
+      return "" if memories.blank?
+      <<~SECTION
+
+        あなたの過去の読書体験の記憶:
+        #{memories}
+
+        この記憶を自然に活かしてください。無理に言及する必要はありません。
+      SECTION
     end
   end
 end
