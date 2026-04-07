@@ -110,7 +110,7 @@ class ThinkingLoopWorker
 
   def generate_reading_summary_if_completed(character, llm_client, core)
     completed = ReadingProgress
-      .where(character: character, status: "completed")
+      .where(character: character, status: "completed", summary_generated: false)
       .where.not(reading_notes: [nil, "", "[]"])
       .first
     return unless completed
@@ -123,8 +123,8 @@ class ThinkingLoopWorker
     # トートのSN生成
     generate_companion_reading_summary(completed, llm_client)
 
-    # 統合SN生成後、notesをクリア
-    completed.update!(reading_notes: nil)
+    # 統合SN生成済みフラグ（reading_notesは保持）
+    completed.update!(summary_generated: true)
   end
 
   def generate_companion_reading_summary(completed, llm_client)
