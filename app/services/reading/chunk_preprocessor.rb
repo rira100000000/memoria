@@ -22,16 +22,18 @@ module Reading
       def split_into_sentences(text)
         sentences = []
         pos = 0
-        # 句点(。)または改行(\n)の直後で分割
-        text.scan(/[^。\n]*[。\n]|[^。\n]+\z/) do |sentence|
-          next if sentence.strip.empty?
+        # 句点(。)で終わる文、または改行で終わる塊を1文として切り出す
+        text.scan(/.+?。|.+?\n|.+\z/m) do |match|
+          match_start = Regexp.last_match.begin(0)
+          match_end = Regexp.last_match.end(0)
+          stripped = match.strip
+          next if stripped.empty?
           sentences << {
             index: sentences.size + 1,
-            text: sentence.strip,
-            start: pos,
-            end: pos + sentence.length,
+            text: stripped,
+            start: match_start,
+            end: match_end,
           }
-          pos += sentence.length
         end
         sentences
       end
