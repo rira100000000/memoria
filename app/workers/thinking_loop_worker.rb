@@ -115,6 +115,9 @@ class ThinkingLoopWorker
       .first
     return unless completed
 
+    # 読書の掛け合いをFullLogに保存
+    save_reading_log_as_fl(completed, core, character)
+
     # キャラクターのSN生成
     service = Reading::ReadingSummaryService.new(character, llm_client: llm_client)
     reflection = service.generate_for(completed)
@@ -125,6 +128,31 @@ class ThinkingLoopWorker
 
     # 統合SN生成済みフラグ（reading_notesは保持）
     completed.update!(summary_generated: true)
+  end
+
+  def save_reading_log_as_fl(reading_progress, core, character)
+    companion_name = character.reading_companion&.name || Reading::ReadingCompanion::NAME
+
+    lines = ["読書記録: #{reading_progress.author}「#{reading_progress.title}」\n"]
+    reading_progress.parsed_notes.each do |entry|
+      case entry["type"]
+      when "narration"
+        lines << "【原文】\n#{entry["text"]}\n"
+      when "dialogue"
+        speaker = entry["speaker"] == "hal" ? character.name : companion_name
+        lines << "#{speaker}: #{entry["text"]}\n"
+      end
+    end
+
+    fl_store = core.fl_store
+    fl_path = fl_store.create(character.name)
+    fl_store.append(fl_path, lines.join("\n"))
+    fl_store.update_frontmatter(fl_path, {
+      "source" => "reading",
+      "participants" => [character.name, companion_name],
+      "work_title" => reading_progress.title,
+      "work_author" => reading_progress.author,
+    })
   end
 
   def generate_companion_reading_summary(completed, llm_client)
