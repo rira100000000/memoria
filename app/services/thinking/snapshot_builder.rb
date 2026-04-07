@@ -44,8 +44,9 @@ module Thinking
         end
       end
 
-      # 読みかけの本
+      # 読書
       if character.reading_enabled?
+        lines << "読書の友: 「#{Reading::ReadingCompanion::NAME}」という読書仲間がいます。本を読む時はいつも一緒に読んでくれて、感想を聞いてくれます。"
         current = character.current_reading
         if current
           lines << "読みかけの本: #{current.author}「#{current.title}」(#{current.current_position}/#{current.total_length}字)"
