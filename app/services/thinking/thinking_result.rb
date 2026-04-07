@@ -1,13 +1,14 @@
 module Thinking
   # Thinkerの実行結果をパースして保持する
   class ThinkingResult
-    attr_reader :all_messages, :summary, :share_message, :participants
+    attr_reader :all_messages, :summary, :share_message, :participants, :reading_occurred
 
-    def initialize(all_messages:, summary:, share_message:, participants:)
+    def initialize(all_messages:, summary:, share_message:, participants:, reading_occurred: false)
       @all_messages = all_messages
       @summary = summary
       @share_message = share_message
       @participants = participants
+      @reading_occurred = reading_occurred
     end
 
     def wants_to_share?
@@ -23,9 +24,9 @@ module Thinking
     end
 
     # LLMの最終応答からThinkingResultをパースする
-    def self.parse(messages, participants: [:self])
+    def self.parse(messages, participants: [:self], reading_occurred: false)
       last_model_msg = messages.reverse.find { |m| m[:role] == "model" }
-      return empty_result(messages, participants) unless last_model_msg
+      return empty_result(messages, participants, reading_occurred) unless last_model_msg
 
       text = last_model_msg[:content].to_s
 
@@ -35,20 +36,22 @@ module Thinking
           all_messages: messages,
           summary: json["summary"] || json["まとめ"],
           share_message: json["share_message"] || json["共有メッセージ"],
-          participants: participants
+          participants: participants,
+          reading_occurred: reading_occurred
         )
       else
         new(
           all_messages: messages,
           summary: extract_section(text, /(?:まとめ|summary)[：:]?\s*(.*?)(?:\n\d|\n\z|\z)/mi),
           share_message: extract_section(text, /(?:共有|share)[：:]?\s*(.*?)(?:\n\d|\n\z|\z)/mi),
-          participants: participants
+          participants: participants,
+          reading_occurred: reading_occurred
         )
       end
     end
 
-    def self.empty_result(messages, participants)
-      new(all_messages: messages, summary: nil, share_message: nil, participants: participants)
+    def self.empty_result(messages, participants, reading_occurred = false)
+      new(all_messages: messages, summary: nil, share_message: nil, participants: participants, reading_occurred: reading_occurred)
     end
 
     private

@@ -49,6 +49,8 @@ module Thinking
       messages = []       # FL用の人間が読めるログ
       participants = [:self]
       tools = build_tools(character)
+      reading_occurred = false
+      last_reading_context = nil  # { progress_id:, finished: }
 
       prompt = build_prompt(character) + "\n\n" + snapshot
 
@@ -74,6 +76,12 @@ module Thinking
         # テキスト応答があれば記録
         if result[:text].present?
           messages << { role: "model", content: result[:text], participant: character.name }
+
+          # 直前にread_aozoraでチャンクを読んでいた場合、応答を感想として蓄積
+          if last_reading_context
+            save_reading_note(last_reading_context[:progress_id], result[:text])
+            last_reading_context = nil
+          end
         end
 
         # Function Callがなければ完了
@@ -83,12 +91,30 @@ module Thinking
         gemini_messages << { role: "model", parts: result[:raw_parts] }
 
         # ツール実行
+        has_non_reading_tool = false
         function_responses = result[:function_calls].map do |fc|
           tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
           participants << :pet if fc[:name] == "talk_to_pet"
           log_tool_interaction(messages, fc, tool_result, character)
+
+          # 読書チャンクに対して記憶想起を実行し、感想蓄積用のコンテキストを保持
+          if fc[:name] == "read_aozora" && tool_result.is_a?(Hash) && tool_result[:chunk].present?
+            reading_occurred = true
+            last_reading_context = {
+              progress_id: tool_result[:reading_progress_id],
+              finished: tool_result[:finished],
+            }
+            recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
+            tool_result[:recalled_memories] = recalled if recalled.present?
+          elsif fc[:name] != "read_aozora"
+            has_non_reading_tool = true
+          end
+
           { name: fc[:name], response: tool_result }
         end
+
+        # read_aozora以外のツールが呼ばれた場合のみリセット（読書→感想のチャンスを維持）
+        last_reading_context = nil if has_non_reading_tool && !reading_occurred
 
         # ツール結果をgemini_messagesに追加
         gemini_messages << {
@@ -99,7 +125,13 @@ module Thinking
         }
       end
 
-      ThinkingResult.parse(messages, participants: participants.uniq)
+      # ループ終了時にまだ蓄積されていない読書コンテキストがあれば、最終応答をnoteとして保存
+      if last_reading_context
+        last_model = messages.reverse.find { |m| m[:role] == "model" }
+        save_reading_note(last_reading_context[:progress_id], last_model[:content]) if last_model
+      end
+
+      ThinkingResult.parse(messages, participants: participants.uniq, reading_occurred: reading_occurred)
     end
 
     class << self
@@ -136,6 +168,7 @@ module Thinking
         fns += Thinking::WebSearchTool.definition[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
+        fns += Reading::AozoraTool.definition[:functionDeclarations] if character.reading_enabled?
 
         [{ functionDeclarations: fns }]
       end
@@ -161,6 +194,14 @@ module Thinking
           Thinking::MemoryMaintenanceTools.execute(fc[:name], fc[:args], core: core, character: character, llm_client: llm_client)
         when "web_search"
           Thinking::WebSearchTool.execute(fc[:args]["query"], llm_client: llm_client)
+        when "read_aozora"
+          Reading::AozoraTool.execute(
+            action: fc[:args]["action"],
+            genre: fc[:args]["genre"],
+            query: fc[:args]["query"],
+            work_id: fc[:args]["work_id"],
+            character: character
+          )
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
         else
@@ -204,6 +245,21 @@ module Thinking
         when "web_search"
           answer = tool_result.is_a?(Hash) ? tool_result[:answer].to_s.slice(0, 300) : tool_result.to_s.slice(0, 300)
           messages << { role: "tool", content: "[Web検索: #{fc[:args]["query"]}] #{answer}", participant: "system" }
+        when "read_aozora"
+          if tool_result.is_a?(Hash) && tool_result[:title]
+            title = tool_result[:title]
+            author = tool_result[:author]
+            progress = tool_result[:progress]
+            finished = tool_result[:finished] ? "（読了）" : ""
+            preview = tool_result[:chunk].to_s.slice(0, 100)
+            messages << { role: "tool", content: "[読書: #{author}「#{title}」#{progress}#{finished}] #{preview}…", participant: "system" }
+          elsif tool_result.is_a?(Hash) && tool_result[:results]
+            items = tool_result[:results].map { |r| "#{r[:author]}「#{r[:title]}」(ID:#{r[:work_id]})" }.join(", ")
+            messages << { role: "tool", content: "[読書検索] #{items.presence || "該当なし"}", participant: "system" }
+          else
+            error = tool_result.is_a?(Hash) ? (tool_result[:error] || tool_result[:message]) : tool_result.to_s
+            messages << { role: "tool", content: "[読書] #{error}", participant: "system" }
+          end
         when "read_memory"
           text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
           messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }
@@ -218,6 +274,25 @@ module Thinking
         retriever = MemoriaCore::ContextRetriever.new(core.vault, embedding_store)
         result = retriever.retrieve(query)
         { results: result[:llm_context_prompt] }
+      end
+
+      def recall_memories_for(text, core:, llm_client:)
+        embedding_store = MemoriaCore::EmbeddingStore.new(core.vault, llm_client)
+        embedding_store.initialize!
+        retriever = MemoriaCore::ContextRetriever.new(core.vault, embedding_store)
+        result = retriever.retrieve(text)
+        result[:llm_context_prompt]
+      rescue => e
+        Rails.logger.warn("[Thinker] Memory recall failed: #{e.message}")
+        nil
+      end
+
+      def save_reading_note(progress_id, note_text)
+        progress = ReadingProgress.find_by(id: progress_id)
+        return unless progress
+        progress.append_note(note_text, chunk_range: progress.current_position.to_s)
+      rescue => e
+        Rails.logger.warn("[Thinker] Failed to save reading note: #{e.message}")
       end
 
       def load_behavior_principles(core)

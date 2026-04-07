@@ -44,6 +44,14 @@ module Thinking
         end
       end
 
+      # 読みかけの本
+      if character.reading_enabled?
+        current = character.current_reading
+        if current
+          lines << "読みかけの本: #{current.author}「#{current.title}」(#{current.current_position}/#{current.total_length}字)"
+        end
+      end
+
       # 今後のスケジュール
       upcoming = character.scheduled_wakeups.upcoming.limit(5)
       if upcoming.any?

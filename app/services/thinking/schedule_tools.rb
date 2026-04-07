@@ -73,6 +73,16 @@ module Thinking
       min_interval = autonomous ? MINIMUM_INTERVAL : 1.minute
       clamped = wakeup_at.clamp(min_interval.from_now, MAXIMUM_INTERVAL.from_now)
 
+      # 近接時間帯（±5分）に既存の予定があれば重複として拒否
+      nearby = character.scheduled_wakeups.pending
+        .where(scheduled_at: (clamped - 5.minutes)..(clamped + 5.minutes))
+      if nearby.exists?
+        existing = nearby.first
+        return {
+          error: "近い時間に既に予定があります（ID:#{existing.id} #{existing.scheduled_at.in_time_zone('Asia/Tokyo').strftime('%H:%M')} #{existing.purpose}）",
+        }
+      end
+
       wakeup = character.scheduled_wakeups.create!(
         scheduled_at: clamped,
         purpose: purpose,

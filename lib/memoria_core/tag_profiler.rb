@@ -72,8 +72,9 @@ module MemoriaCore
         character_settings: character_settings
       )
 
-      response = @llm_client.generate(prompt)
-      parsed = parse_llm_response(response, tag_name)
+      result = @llm_client.generate(prompt)
+      response_text = result.is_a?(Hash) ? result[:text] : result
+      parsed = parse_llm_response(response_text, tag_name)
       return unless parsed
 
       # frontmatter更新

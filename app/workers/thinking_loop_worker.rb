@@ -68,6 +68,7 @@ class ThinkingLoopWorker
     conversation_text = result.to_conversation_text
     return if conversation_text.strip.empty?
 
+    # FL(FullLog)は常に保存
     fl_store = core.fl_store
     fl_path = fl_store.create(character.name)
     fl_store.append(fl_path, conversation_text)
@@ -77,25 +78,50 @@ class ThinkingLoopWorker
       "participants" => result.participants.map(&:to_s),
     })
 
+    # 読書が含まれるloopではSN生成を抑制（感想はReadingProgressに蓄積済み）
+    if result.reading_occurred
+      generate_reading_summary_if_completed(character, llm_client, core)
+      return
+    end
+
+    # 読書を含まないloopは従来通りSN生成
     service = ReflectionService.new(character, llm_client: llm_client)
     reflection = service.generate(
       conversation_text: conversation_text,
       full_log_ref: File.basename(fl_path),
-      timestamp: Time.now.strftime("%Y%m%d%H%M")
+      timestamp: Time.now.strftime("%Y%m%d%H%M"),
     )
 
-    if reflection
-      sn_content = core.vault.read(reflection[:file_path])
-      if sn_content
-        fm, body = MemoriaCore::Frontmatter.parse(sn_content)
-        if fm
-          fm["source"] = "autonomous"
-          core.vault.write(reflection[:file_path], MemoriaCore::Frontmatter.build(fm, body))
-        end
-      end
+    process_reflection(reflection, core, character) if reflection
+  end
 
-      TagProfilingWorker.perform_async(character.id, reflection[:file_path])
+  def process_reflection(reflection, core, character)
+    sn_content = core.vault.read(reflection[:file_path])
+    if sn_content
+      fm, body = MemoriaCore::Frontmatter.parse(sn_content)
+      if fm
+        fm["source"] = "autonomous"
+        core.vault.write(reflection[:file_path], MemoriaCore::Frontmatter.build(fm, body))
+      end
     end
+
+    TagProfilingWorker.perform_async(character.id, reflection[:file_path])
+  end
+
+  def generate_reading_summary_if_completed(character, llm_client, core)
+    completed = ReadingProgress
+      .where(character: character, status: "completed")
+      .where.not(reading_notes: [nil, "", "[]"])
+      .first
+    return unless completed
+
+    service = Reading::ReadingSummaryService.new(character, llm_client: llm_client)
+    reflection = service.generate_for(completed)
+
+    process_reflection(reflection, core, character) if reflection
+
+    # 統合SN生成後、notesをクリア
+    completed.update!(reading_notes: nil)
   end
 
   def build_usage_tracker(user, character)

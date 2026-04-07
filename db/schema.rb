@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_05_055739) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_07_002403) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -45,6 +45,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_055739) do
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.jsonb "pet_config"
+    t.boolean "reading_enabled", default: false, null: false
     t.text "system_prompt"
     t.boolean "thinking_loop_enabled", default: false, null: false
     t.datetime "updated_at", null: false
@@ -81,9 +82,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_055739) do
     t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["character_id", "user_id", "status"], name: "index_chat_sessions_on_character_id_and_user_id_and_status"
+    t.index ["character_id", "user_id"], name: "index_chat_sessions_unique_active", unique: true, where: "((status)::text = 'active'::text)"
     t.index ["character_id"], name: "index_chat_sessions_on_character_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
+  end
+
+  create_table "reading_progresses", force: :cascade do |t|
+    t.string "author", null: false
+    t.text "cached_text"
+    t.bigint "character_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "current_position", default: 0
+    t.text "reading_notes"
+    t.string "source_info"
+    t.string "status", default: "reading", null: false
+    t.string "title", null: false
+    t.integer "total_length"
+    t.datetime "updated_at", null: false
+    t.string "work_id", null: false
+    t.index ["character_id", "status"], name: "index_reading_progresses_on_character_id_and_status"
+    t.index ["character_id", "work_id"], name: "index_reading_progresses_on_character_id_and_work_id", unique: true
+    t.index ["character_id"], name: "index_reading_progresses_on_character_id"
   end
 
   create_table "scheduled_wakeups", force: :cascade do |t|
@@ -117,5 +136,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_055739) do
   add_foreign_key "chat_results", "users"
   add_foreign_key "chat_sessions", "characters"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "reading_progresses", "characters"
   add_foreign_key "scheduled_wakeups", "characters"
 end

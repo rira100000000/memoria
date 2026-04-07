@@ -39,3 +39,6 @@
 
 # Ignore node_modules
 /node_modules
+
+# Aozora Bunko data (downloaded via rake aozora:setup)
+/data/aozora/

@@ -3,6 +3,7 @@ class Character < ApplicationRecord
   has_many :chat_session_records, dependent: :destroy
   has_many :channel_bindings, dependent: :destroy
   has_many :scheduled_wakeups, dependent: :destroy
+  has_many :reading_progresses, dependent: :destroy
 
   validates :name, presence: true
 
@@ -40,6 +41,12 @@ class Character < ApplicationRecord
       "traits" => traits,
       "adopted_at" => Time.current.strftime("%Y-%m-%d %H:%M"),
     })
+  end
+
+  # --- 読書 ---
+
+  def current_reading
+    reading_progresses.find_by(status: "reading")
   end
 
   # --- 思考ループ ---

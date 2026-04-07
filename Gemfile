@@ -42,6 +42,12 @@ gem "ruby-gemini-api"
 gem "sidekiq", "~> 7.2.0"
 gem "connection_pool", "~> 2.4"
 
+# CSV parsing (no longer in default gems since Ruby 3.4)
+gem "csv"
+
+# Zip file handling (Aozora Bunko text extraction)
+gem "rubyzip", "~> 2.3"
+
 # Discord Bot
 gem "discordrb", "~> 3.5"
 

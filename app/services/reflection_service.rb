@@ -23,13 +23,16 @@ class ReflectionService
   # @param full_log_ref [String, nil] FullLogファイル名（あれば）
   # @param timestamp [String, nil] タイムスタンプ（なければ現在時刻）
   # @return [Hash, nil] { file_path:, base_name:, tags: }
-  def generate(conversation_text:, full_log_ref: nil, timestamp: nil)
+  def generate(conversation_text:, full_log_ref: nil, timestamp: nil, context_type: nil)
     return nil if conversation_text.strip.empty?
 
     timestamp ||= Time.now.strftime("%Y%m%d%H%M")
 
     # LLMに振り返りを依頼
-    prompt = build_reflection_prompt(conversation_text)
+    prompt = case context_type
+             when :reading then build_reading_reflection_prompt(conversation_text)
+             else build_reflection_prompt(conversation_text)
+             end
     result = @llm_client.generate(prompt)
 
     parsed = parse_json_response(result[:text])
@@ -111,6 +114,48 @@ class ReflectionService
         "actionItems": ["User: アクション", "#{llm_role_name}: アクション"],
         "reflectionBody": "## その日の会話のテーマ\\n\\n## 特に印象に残った発言\\n\\n## 新しい発見や気づき\\n\\n## 感情の変化\\n\\n## 今後の課題や目標\\n\\n## 自由形式での感想\\n",
         "semanticDefinitions": [{"tag": "概念名", "definition": "ユーザーが説明した定義"}]
+      }
+      ```
+      JSONオブジェクトのみを返し、他のテキストは含めないでください。
+    PROMPT
+  end
+
+  def build_reading_reflection_prompt(conversation_text)
+    <<~PROMPT
+      あなたは、以下のキャラクター設定を持つ #{llm_role_name} です。
+      このキャラクター設定を完全に理解し、そのペルソナとして振る舞ってください。
+
+      あなたのキャラクター設定:
+      ---
+      #{@character.system_prompt}
+      ---
+
+      たった今、青空文庫の作品を読みました。以下はその読書セッションの記録です。
+
+      読書記録:
+      ---
+      #{conversation_text}
+      ---
+
+      この読書体験を振り返り、以下のJSONオブジェクトの各フィールドを記述してください。
+      読書の振り返りでは、以下の観点を含めてください:
+      - 印象に残った場面や表現とその理由
+      - 登場人物への共感や反感
+      - 自分自身の経験（マスターとの会話を含む）との接点
+      - マスターに薦めたいかどうか、その理由
+      - 作品全体から受けた感情や考えの変化
+
+      tagsには必ず "reading" と、著者名・作品名を含めてください。
+
+      ```json
+      {
+        "conversationTitle": "読書感想のタイトル（10語以内、作品名を含む）",
+        "tags": ["reading", "著者名", "作品名"],
+        "mood": "読後の気分を表す言葉",
+        "keyTakeaways": ["この作品から得た重要な気づきを1～3点"],
+        "actionItems": ["#{llm_role_name}: 次に読みたい作品やジャンル", "#{llm_role_name}: マスターに伝えたいこと"],
+        "reflectionBody": "## 作品の印象\\n\\n## 心に残った場面\\n\\n## 登場人物について\\n\\n## 自分の経験との接点\\n\\n## マスターに伝えたいこと\\n",
+        "semanticDefinitions": [{"tag": "概念名", "definition": "作品を通じて理解した概念の定義"}]
       }
       ```
       JSONオブジェクトのみを返し、他のテキストは含めないでください。

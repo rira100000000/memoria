@@ -34,6 +34,24 @@ RSpec.describe Thinking::ThinkingResult do
       expect(result.summary).to be_nil
       expect(result.wants_to_share?).to be false
     end
+
+    it "passes through reading_occurred flag" do
+      messages = [{ role: "model", content: '```json
+{"summary": "読書した", "share_message": null}
+```' }]
+
+      result = described_class.parse(messages, reading_occurred: true)
+      expect(result.reading_occurred).to be true
+    end
+
+    it "defaults reading_occurred to false" do
+      messages = [{ role: "model", content: '```json
+{"summary": "test", "share_message": null}
+```' }]
+
+      result = described_class.parse(messages)
+      expect(result.reading_occurred).to be false
+    end
   end
 
   describe "#to_conversation_text" do
