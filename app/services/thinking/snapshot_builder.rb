@@ -50,6 +50,19 @@ module Thinking
         current = character.current_reading
         if current
           lines << "読みかけの本: #{current.author}「#{current.title}」(#{current.current_position}/#{current.total_length}字)"
+          # 直近の読書ノートから最後のチャンク内容を要約
+          last_narration = current.parsed_notes.select { |n| n["type"] == "narration" }.last
+          if last_narration
+            preview = last_narration["text"].to_s.slice(0, 200)
+            lines << "前回読んだところ: #{preview}…"
+          end
+          # 次のチャンクのラベル
+          next_chunk = current.next_chunk_end(current.current_position)
+          if next_chunk
+            _, label = next_chunk
+            lines << "次の場面: 「#{label}」" if label.present?
+          end
+          lines << "注意: まだ読んでいない部分の内容には言及しないでください。今読んでいる作品は「#{current.title}」です。"
         end
       end
 
