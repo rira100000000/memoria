@@ -1,6 +1,6 @@
 module Reading
   # 作品テキストを語りのリズムを意識した区切りに分割する前処理
-  # 実況配信のテンポを意識: 淡々とした場面は長め、緊迫場面は短く、名言は一文
+  # 句点・改行で文に分割し、インデックスを付けてLLMに区切り位置を選ばせる
   class ChunkPreprocessor
     MAX_CHUNK = 500
     FALLBACK_TARGET = 300
@@ -8,69 +8,106 @@ module Reading
     def self.call(text, llm_client:)
       return [{ "end" => text.length, "label" => "全文" }] if text.length <= MAX_CHUNK
 
-      boundaries = generate_boundaries(text, llm_client)
+      sentences = split_into_sentences(text)
+      return [{ "end" => text.length, "label" => "全文" }] if sentences.size <= 1
+
+      boundaries = generate_boundaries(sentences, llm_client)
       boundaries.presence || fallback_boundaries(text)
     end
 
     class << self
       private
 
-      def generate_boundaries(text, llm_client)
-        # 長すぎるテキストは先頭部分でプロンプトを構築し全文の文字位置を指定させる
+      # テキストを句点・改行で分割し、各文にインデックスと文字位置を付与
+      def split_into_sentences(text)
+        sentences = []
+        pos = 0
+        # 句点(。)または改行(\n)の直後で分割
+        text.scan(/[^。\n]*[。\n]|[^。\n]+\z/) do |sentence|
+          next if sentence.strip.empty?
+          sentences << {
+            index: sentences.size + 1,
+            text: sentence.strip,
+            start: pos,
+            end: pos + sentence.length,
+          }
+          pos += sentence.length
+        end
+        sentences
+      end
+
+      def generate_boundaries(sentences, llm_client)
+        # インデックス付きの文一覧を構築
+        indexed_text = sentences.map { |s| "[#{s[:index]}] #{s[:text]}" }.join("\n")
+
         prompt = <<~PROMPT
-          以下のテキストを、読書実況に適したチャンクに分割してください。
+          以下は小説のテキストを文ごとに分割し、インデックスを付けたものです。
+
+          #{indexed_text}
+
+          ## タスク
+          このテキストを読書実況に適したチャンクに分割してください。
+          各チャンクの「最後の文のインデックス」と「チャンクのラベル」を指定してください。
 
           ## 分割の原則
-          - 淡々とした描写や説明 → やや長め（300〜500字）
-          - 緊張が高まる場面、展開が動く場面 → 短め（100〜200字）
-          - 名言、衝撃的な一文、クライマックス → 一文だけ切り出す
-          - 最大500字、最小は一文
-          - 語りのリズムを意識する。聞いている人が飽きず、かつ盛り上がりで息を飲むような緩急
-
-          ## テキスト（全#{text.length}字）
-          #{text}
+          - 淡々とした描写や説明 → 複数の文をまとめる
+          - 緊張が高まる場面、展開が動く場面 → 少ない文数で短く
+          - 名言、衝撃的な一文、クライマックス → 一文だけで切り出す
+          - 語りのリズムを意識する。実況で聞いている人が盛り上がるような緩急
 
           ## 出力形式
-          各チャンクの終了位置（文字数）とラベルをJSON配列で返してください。
-          endは0始まりの文字位置で、そのチャンクの末尾の次の位置です。
-          最後のチャンクのendはテキスト全体の長さ（#{text.length}）にしてください。
-
           ```json
           [
-            {"end": 245, "label": "導入"},
-            {"end": 680, "label": "事件発覚"},
-            ...
-            {"end": #{text.length}, "label": "結末"}
+            {"last_index": 5, "label": "導入"},
+            {"last_index": 8, "label": "事件発覚"},
+            {"last_index": #{sentences.last[:index]}, "label": "結末"}
           ]
           ```
+          最後のチャンクのlast_indexは必ず#{sentences.last[:index]}にしてください。
           JSON配列のみを返してください。
         PROMPT
 
         result = llm_client.generate(prompt, tier: :light)
-        parse_boundaries(result[:text], text.length)
+        parse_boundaries(result[:text], sentences)
       rescue => e
         Rails.logger.warn("[ChunkPreprocessor] LLM failed: #{e.message}")
         nil
       end
 
-      def parse_boundaries(response_text, text_length)
+      def parse_boundaries(response_text, sentences)
         json_match = response_text.match(/```json\s*(.*?)\s*```/m)
         json_str = json_match ? json_match[1] : response_text
-        boundaries = JSON.parse(json_str)
+        raw = JSON.parse(json_str)
 
-        return nil unless boundaries.is_a?(Array) && boundaries.size >= 1
+        return nil unless raw.is_a?(Array) && raw.size >= 1
 
-        # バリデーション: endが昇順でtext_length以下
-        boundaries = boundaries.select { |b| b["end"].is_a?(Integer) && b["end"] > 0 }
-        boundaries.sort_by! { |b| b["end"] }
-        boundaries.last["end"] = text_length if boundaries.any? # 最後は必ずテキスト末尾
+        max_index = sentences.last[:index]
+        boundaries = []
+
+        raw.each do |entry|
+          idx = entry["last_index"].to_i
+          next if idx <= 0 || idx > max_index
+
+          sentence = sentences.find { |s| s[:index] == idx }
+          next unless sentence
+
+          boundaries << {
+            "end" => sentence[:end],
+            "label" => entry["label"].to_s,
+          }
+        end
+
+        return nil if boundaries.empty?
+
+        # 最後は必ずテキスト末尾
+        boundaries.last["end"] = sentences.last[:end]
 
         # 重複・逆転を除去
         cleaned = []
         prev_end = 0
-        boundaries.each do |b|
+        boundaries.sort_by { |b| b["end"] }.each do |b|
           next if b["end"] <= prev_end
-          cleaned << { "end" => b["end"], "label" => b["label"].to_s }
+          cleaned << b
           prev_end = b["end"]
         end
 
@@ -86,7 +123,6 @@ module Reading
           target = pos + FALLBACK_TARGET
           break boundaries << { "end" => text.length, "label" => "" } if target >= text.length
 
-          # 句点で区切る
           region = text[[target - 100, pos].max...[target + 100, text.length].min]
           if region && (idx = region.index("。"))
             chunk_end = [target - 100, pos].max + idx + 1

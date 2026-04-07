@@ -11,16 +11,17 @@ RSpec.describe Reading::ChunkPreprocessor do
     end
 
     it "parses LLM response into boundaries" do
-      text = "あ" * 1000
+      text = ("最初の文。" * 50) + ("次の文。" * 50) + ("三番目の文。" * 50) + "最後の文。"
+      # 4文に分割される → LLMがlast_indexで区切りを返す
       allow(llm_client).to receive(:generate).and_return({
         text: '```json
-[{"end": 300, "label": "導入"}, {"end": 700, "label": "展開"}, {"end": 1000, "label": "結末"}]
+[{"last_index": 2, "label": "導入"}, {"last_index": 4, "label": "結末"}]
 ```'
       })
 
       result = described_class.call(text, llm_client: llm_client)
-      expect(result.size).to eq(3)
-      expect(result.last["end"]).to eq(1000)
+      expect(result.size).to eq(2)
+      expect(result.last["end"]).to eq(text.length)
       expect(result.first["label"]).to eq("導入")
     end
 
