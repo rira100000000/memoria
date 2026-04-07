@@ -44,7 +44,6 @@ module Reading
         return { error: "今日の読書回数の上限（#{MAX_DAILY_SESSIONS}回）に達しました" } unless can_read_today?(character)
         discover(character, genre: genre, llm_client: llm_client)
       when "continue"
-        return { error: "今日の読書回数の上限（#{MAX_DAILY_SESSIONS}回）に達しました" } unless can_read_today?(character)
         continue_reading(character)
       else
         { error: "Unknown action: #{action}" }
@@ -54,8 +53,8 @@ module Reading
     def self.can_read_today?(character)
       ReadingProgress
         .where(character: character)
-        .where("updated_at >= ?", Time.current.beginning_of_day)
-        .select(:id).distinct.count < MAX_DAILY_SESSIONS
+        .where("created_at >= ?", Time.current.beginning_of_day)
+        .count < MAX_DAILY_SESSIONS
     end
 
     class << self
