@@ -1,6 +1,6 @@
 module Api
   class ReadingController < BaseController
-    before_action :set_character
+    before_action :set_character, except: :search
 
     # POST /api/characters/:id/reading/start
     def start
