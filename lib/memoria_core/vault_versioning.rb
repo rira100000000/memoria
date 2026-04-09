@@ -53,6 +53,44 @@ module MemoriaCore
       end
     end
 
+    # --- ブランチ操作 ---
+
+    def current_branch
+      output = `git -C #{Shellwords.escape(@repo_path)} branch --show-current 2>/dev/null`.strip
+      output.empty? ? nil : output
+    end
+
+    def list_branches
+      output = `git -C #{Shellwords.escape(@repo_path)} branch --format='%(refname:short)' 2>/dev/null`.strip
+      output.split("\n")
+    end
+
+    def create_branch(name)
+      git("checkout", "-b", name)
+    end
+
+    def checkout_branch(name)
+      git("checkout", name)
+    end
+
+    def delete_branch(name)
+      git("branch", "-D", name)
+    end
+
+    def merge_branch(name, into:)
+      current = current_branch
+      return false unless checkout_branch(into)
+      result = git("merge", "--no-ff", "-m", "Merge #{name} into #{into}", name)
+      checkout_branch(current) if current && current != into && result == false
+      result
+    end
+
+    # 現在のHEADコミットshaを返す
+    def head_sha
+      output = `git -C #{Shellwords.escape(@repo_path)} rev-parse HEAD 2>/dev/null`.strip
+      output.empty? ? nil : output
+    end
+
     private
 
     def no_changes?

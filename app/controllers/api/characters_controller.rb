@@ -42,7 +42,10 @@ module Api
     end
 
     def character_params
-      params.require(:character).permit(:name, :system_prompt, :thinking_loop_enabled, :thinking_loop_interval_minutes)
+      params.require(:character).permit(
+        :name, :system_prompt, :thinking_loop_enabled, :thinking_loop_interval_minutes,
+        :reading_enabled, :reading_companion_id, :vault_dir_name
+      )
     end
 
     def character_json(c)
@@ -53,6 +56,8 @@ module Api
         vault_dir_name: c.vault_dir_name,
         thinking_loop_enabled: c.thinking_loop_enabled,
         thinking_loop_interval_minutes: c.thinking_loop_interval_minutes,
+        reading_enabled: c.reading_enabled,
+        reading_companion_id: c.reading_companion_id,
         created_at: c.created_at,
         updated_at: c.updated_at,
       }
