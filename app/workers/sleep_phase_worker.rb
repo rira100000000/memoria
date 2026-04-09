@@ -28,10 +28,14 @@ class SleepPhaseWorker
     }
     llm_client = LlmClient.new(usage_tracker: tracker)
 
+    vault.versioning.commit_snapshot("pre_sleep_phase")
+
     sleep_phase = MemoriaCore::SleepPhase.new(vault, llm_client, {
       llm_role_name: character.name,
     })
     result = sleep_phase.run(full_log_content)
+
+    vault.versioning.commit_snapshot("post_sleep_phase", "sleep_phase: #{result[:corrections]}件の矛盾を修正")
 
     Rails.logger.info("[SleepPhaseWorker] Completed for Character##{character_id}: #{result[:corrections]} corrections")
   rescue => e

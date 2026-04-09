@@ -12,6 +12,8 @@ class TagProfilingWorker
     embedding_store = MemoriaCore::EmbeddingStore.new(vault, llm_client)
     embedding_store.initialize!
 
+    vault.versioning.commit_snapshot("pre_tag_profiling")
+
     tag_profiler = MemoriaCore::TagProfiler.new(vault, llm_client, {
       llm_role_name: character.name,
       system_prompt: character.system_prompt,
@@ -33,6 +35,9 @@ class TagProfilingWorker
         { title: tag, tags: [tag] }
       )
     end
+
+    tags_summary = Array(fm["tags"]).join(", ")
+    vault.versioning.commit_snapshot("post_tag_profiling", "tag_profiling: #{tags_summary} のTPNを更新")
 
     Rails.logger.info("[TagProfilingWorker] Completed for Character##{character_id}, SN: #{sn_file_path}")
   rescue => e

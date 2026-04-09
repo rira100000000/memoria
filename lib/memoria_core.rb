@@ -6,6 +6,7 @@ module MemoriaCore
   end
 end
 
+require_relative "memoria_core/vault_versioning"
 require_relative "memoria_core/vault_manager"
 require_relative "memoria_core/frontmatter"
 require_relative "memoria_core/tpn_store"

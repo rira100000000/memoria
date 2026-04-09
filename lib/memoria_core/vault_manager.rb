@@ -19,6 +19,11 @@ module MemoriaCore
     def ensure_structure!
       FileUtils.mkdir_p(vault_path)
       SUBDIRS.each { |dir| FileUtils.mkdir_p(File.join(vault_path, dir)) }
+      versioning.ensure_repo!
+    end
+
+    def versioning
+      @versioning ||= VaultVersioning.new(self)
     end
 
     def path_for(*segments)

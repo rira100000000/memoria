@@ -72,6 +72,8 @@ module Thinking
     end
 
     def self.merge(core, character, memory_names:, merged_title:, merged_body:, llm_client: nil)
+      core.vault.versioning.commit_snapshot("pre_memory_merge")
+
       merged_base = core.sn_store.merge(
         memory_names,
         merged_title: merged_title,
@@ -86,15 +88,21 @@ module Thinking
         memory_names.each { |name| remove_embedding(core, name, llm_client) }
       end
 
+      core.vault.versioning.commit_snapshot("memory_maintenance", "merge: #{memory_names.join(', ')} → #{merged_base}")
+
       { success: true, merged_as: merged_base, archived: memory_names }
     end
 
     def self.archive(core, memory_name, llm_client: nil)
+      core.vault.versioning.commit_snapshot("pre_memory_archive")
+
       result = core.sn_store.archive(memory_name)
       return { error: "記憶が見つかりません: #{memory_name}" } unless result
 
       # embeddingから除外
       remove_embedding(core, memory_name, llm_client) if llm_client
+
+      core.vault.versioning.commit_snapshot("memory_maintenance", "archive: #{memory_name}")
 
       { success: true, archived: memory_name }
     end
