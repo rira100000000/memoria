@@ -1,10 +1,19 @@
 class Character < ApplicationRecord
   belongs_to :user
   belongs_to :reading_companion, class_name: "Character", optional: true
+  # 自分を reading_companion として指している他キャラ。削除時は nullify して
+  # 相手の reading_companion_id を NULL に戻す (FK制約回避)
+  has_many :companioned_by_characters,
+           class_name: "Character",
+           foreign_key: :reading_companion_id,
+           dependent: :nullify,
+           inverse_of: :reading_companion
   has_many :chat_session_records, dependent: :destroy
   has_many :channel_bindings, dependent: :destroy
   has_many :scheduled_wakeups, dependent: :destroy
   has_many :reading_progresses, dependent: :destroy
+  has_many :chat_results, dependent: :destroy
+  has_many :api_usage_logs, dependent: :nullify
 
   validates :name, presence: true
 
