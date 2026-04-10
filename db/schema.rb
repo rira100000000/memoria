@@ -11,11 +11,8 @@
 # It's strongly recommended that you check this file into your version control system.
 
 ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
-  # These are extensions that must be enabled in order to support this database
-  enable_extension "pg_catalog.plpgsql"
-
   create_table "api_usage_logs", force: :cascade do |t|
-    t.bigint "character_id"
+    t.integer "character_id"
     t.datetime "created_at", null: false
     t.decimal "estimated_cost_usd", precision: 10, scale: 6, default: "0.0"
     t.integer "input_tokens", default: 0
@@ -24,7 +21,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
     t.integer "total_tokens", default: 0
     t.string "trigger_type", null: false
     t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
+    t.integer "user_id", null: false
     t.index ["character_id"], name: "index_api_usage_logs_on_character_id"
     t.index ["trigger_type"], name: "index_api_usage_logs_on_trigger_type"
     t.index ["user_id", "created_at"], name: "index_api_usage_logs_on_user_id_and_created_at"
@@ -33,7 +30,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
 
   create_table "channel_bindings", force: :cascade do |t|
     t.string "channel_id", null: false
-    t.bigint "character_id", null: false
+    t.integer "character_id", null: false
     t.datetime "created_at", null: false
     t.string "platform", default: "discord", null: false
     t.datetime "updated_at", null: false
@@ -44,20 +41,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
   create_table "characters", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "name", null: false
-    t.jsonb "pet_config"
-    t.bigint "reading_companion_id"
+    t.json "pet_config"
+    t.integer "reading_companion_id"
     t.boolean "reading_enabled", default: false, null: false
     t.text "system_prompt"
     t.boolean "thinking_loop_enabled", default: false, null: false
     t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
+    t.integer "user_id", null: false
     t.string "vault_dir_name", null: false
     t.index ["reading_companion_id"], name: "index_characters_on_reading_companion_id"
     t.index ["user_id"], name: "index_characters_on_user_id"
   end
 
   create_table "chat_results", force: :cascade do |t|
-    t.bigint "character_id", null: false
+    t.integer "character_id", null: false
     t.datetime "completed_at"
     t.datetime "created_at", null: false
     t.text "error_message"
@@ -66,8 +63,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
     t.text "response"
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
-    t.jsonb "usage"
-    t.bigint "user_id", null: false
+    t.json "usage"
+    t.integer "user_id", null: false
     t.index ["character_id"], name: "index_chat_results_on_character_id"
     t.index ["job_id"], name: "index_chat_results_on_job_id", unique: true
     t.index ["status"], name: "index_chat_results_on_status"
@@ -75,16 +72,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
   end
 
   create_table "chat_sessions", force: :cascade do |t|
-    t.bigint "character_id", null: false
+    t.integer "character_id", null: false
     t.datetime "created_at", null: false
     t.string "full_log_path"
     t.datetime "last_message_at"
-    t.jsonb "messages", default: [], null: false
+    t.json "messages", default: [], null: false
     t.string "pending_timeout_job_id"
     t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["character_id", "user_id"], name: "index_chat_sessions_unique_active", unique: true, where: "((status)::text = 'active'::text)"
+    t.integer "user_id", null: false
+    t.index ["character_id", "user_id"], name: "index_chat_sessions_unique_active", unique: true, where: "status = 'active'"
     t.index ["character_id"], name: "index_chat_sessions_on_character_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
@@ -92,7 +89,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
   create_table "reading_progresses", force: :cascade do |t|
     t.string "author", null: false
     t.text "cached_text"
-    t.bigint "character_id", null: false
+    t.integer "character_id", null: false
     t.text "chunk_boundaries"
     t.datetime "created_at", null: false
     t.integer "current_position", default: 0
@@ -111,7 +108,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
 
   create_table "scheduled_wakeups", force: :cascade do |t|
     t.string "action"
-    t.bigint "character_id", null: false
+    t.integer "character_id", null: false
     t.datetime "created_at", null: false
     t.string "purpose", null: false
     t.datetime "scheduled_at", null: false

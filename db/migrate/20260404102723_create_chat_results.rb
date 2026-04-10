@@ -7,7 +7,7 @@ class CreateChatResults < ActiveRecord::Migration[8.1]
       t.string :status, null: false, default: "pending"
       t.text :message, null: false
       t.text :response
-      t.jsonb :usage
+      t.json :usage
       t.text :error_message
       t.datetime :completed_at
 
