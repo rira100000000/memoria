@@ -63,16 +63,13 @@ class Character < ApplicationRecord
 
   def enable_thinking_loop!
     update!(thinking_loop_enabled: true)
-    ThinkingLoopWorker.perform_async(id)
+    ThinkingLoopJob.perform_later(id)
   end
 
   def disable_thinking_loop!
     update!(thinking_loop_enabled: false)
-    # スケジュール済みジョブをキャンセル
-    require "sidekiq/api"
-    Sidekiq::ScheduledSet.new.select { |job|
-      job.klass == "ThinkingLoopWorker" && job.args == [id]
-    }.each(&:delete)
+    # スケジュール済みジョブのキャンセルは不要：
+    # ThinkingLoopJob 側で thinking_loop_enabled? をチェックして早期 return する
   end
 
   private

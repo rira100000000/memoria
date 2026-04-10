@@ -90,9 +90,8 @@ module Thinking
         status: "pending"
       )
 
-      # Sidekiqジョブをスケジュール
-      jid = ThinkingLoopWorker.perform_at(clamped, character.id, wakeup.id)
-      wakeup.update!(sidekiq_job_id: jid)
+      # 思考ループをスケジュール
+      ThinkingLoopJob.set(wait_until: clamped).perform_later(character.id, wakeup.id)
 
       {
         success: true,

@@ -15,10 +15,7 @@ class ScheduledWakeup < ApplicationRecord
 
   def cancel!
     update!(status: "cancelled")
-    # Sidekiqジョブもキャンセル（スケジュール済みセットから削除）
-    if sidekiq_job_id.present?
-      require "sidekiq/api"
-      Sidekiq::ScheduledSet.new.select { |job| job.jid == sidekiq_job_id }.each(&:delete)
-    end
+    # スケジュール済みジョブのキャンセルは不要：
+    # ThinkingLoopJob 側で wakeup.status をチェックして早期 return する
   end
 end

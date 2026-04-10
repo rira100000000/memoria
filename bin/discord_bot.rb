@@ -112,14 +112,11 @@ def send_discord_response(channel, text)
 end
 
 def schedule_timeout(record)
-  # 既存のタイムアウトジョブがあればキャンセル（Sidekiqにはjob cancelがないため、
-  # ワーカー側でmessage_countチェックにより無効化される）
-  job_id = ConversationTimeoutWorker.perform_in(
-    ConversationTimeoutWorker::TIMEOUT_MINUTES.minutes,
-    record.id,
-    record.message_count
-  )
-  record.update!(pending_timeout_job_id: job_id)
+  # 既存のタイムアウトジョブのキャンセルは不要：
+  # ジョブ側で message_count を比較して新しいメッセージがあれば早期 return する
+  ConversationTimeoutJob
+    .set(wait: ConversationTimeoutJob::TIMEOUT_MINUTES.minutes)
+    .perform_later(record.id, record.message_count)
 end
 
 puts "[Discord Bot] Starting..."

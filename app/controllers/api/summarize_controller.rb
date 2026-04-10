@@ -28,7 +28,7 @@ module Api
         }
       )
 
-      SummarizeWorker.perform_async(chat_result.id)
+      SummarizeJob.perform_later(chat_result.id)
 
       render json: {
         job_id: job_id,

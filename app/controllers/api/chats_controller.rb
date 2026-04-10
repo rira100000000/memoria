@@ -26,8 +26,8 @@ module Api
         reflection = session.reset!
 
         if reflection
-          TagProfilingWorker.perform_async(@character.id, reflection[:file_path])
-          SleepPhaseWorker.perform_async(@character.id, reflection[:full_log_path]) if reflection[:full_log_path]
+          TagProfilingJob.perform_later(@character.id, reflection[:file_path])
+          SleepPhaseJob.perform_later(@character.id, reflection[:full_log_path]) if reflection[:full_log_path]
         end
 
         render json: {
@@ -61,7 +61,7 @@ module Api
         message: message
       )
 
-      ChatWorker.perform_async(chat_result.id)
+      ChatJob.perform_later(chat_result.id)
 
       render json: {
         job_id: job_id,
