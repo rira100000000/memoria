@@ -1,10 +1,10 @@
 require "rails_helper"
 
-RSpec.describe ThinkingLoopWorker, type: :worker do
+RSpec.describe ThinkingLoopJob, type: :job do
   let(:character) { create(:character, thinking_loop_enabled: true) }
 
   it "is enqueued in the low queue" do
-    expect(described_class.get_sidekiq_options["queue"].to_s).to eq("low")
+    expect(described_class.new.queue_name).to eq("low")
   end
 
   describe "#perform" do

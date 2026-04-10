@@ -19,13 +19,11 @@ RSpec.describe Thinking::ScheduleTools do
 
   describe ".add" do
     it "creates a scheduled wakeup" do
-      Sidekiq::Testing.fake! do
-        result = described_class.add(character, time_text: "3時間後", purpose: "確認")
+      result = described_class.add(character, time_text: "3時間後", purpose: "確認")
 
-        expect(result[:success]).to be true
-        expect(character.scheduled_wakeups.pending.count).to eq(1)
-        expect(ThinkingLoopWorker.jobs.size).to eq(1)
-      end
+      expect(result[:success]).to be true
+      expect(character.scheduled_wakeups.pending.count).to eq(1)
+      expect(ThinkingLoopJob).to have_been_enqueued
     end
 
     it "rejects unparseable time" do
@@ -34,19 +32,15 @@ RSpec.describe Thinking::ScheduleTools do
     end
 
     it "clamps to minimum interval for autonomous" do
-      Sidekiq::Testing.fake! do
-        result = described_class.add(character, time_text: "1分後", purpose: "急ぎ", autonomous: true)
-        wakeup = character.scheduled_wakeups.last
-        expect(wakeup.scheduled_at).to be > 9.minutes.from_now
-      end
+      described_class.add(character, time_text: "1分後", purpose: "急ぎ", autonomous: true)
+      wakeup = character.scheduled_wakeups.last
+      expect(wakeup.scheduled_at).to be > 9.minutes.from_now
     end
 
     it "allows short interval for user-initiated" do
-      Sidekiq::Testing.fake! do
-        result = described_class.add(character, time_text: "2分後", purpose: "テスト")
-        wakeup = character.scheduled_wakeups.last
-        expect(wakeup.scheduled_at).to be < 5.minutes.from_now
-      end
+      described_class.add(character, time_text: "2分後", purpose: "テスト")
+      wakeup = character.scheduled_wakeups.last
+      expect(wakeup.scheduled_at).to be < 5.minutes.from_now
     end
   end
 

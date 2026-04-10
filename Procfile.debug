@@ -1,3 +1,3 @@
 web: bin/rails server -p 3000
-worker: bundle exec rdbg --open --nonstop -c -- bundle exec sidekiq
+jobs: bundle exec rdbg --open --nonstop -c -- bin/jobs
 discord: bundle exec ruby bin/discord_bot.rb

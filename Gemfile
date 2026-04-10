@@ -38,10 +38,6 @@ gem "rack-cors"
 # Gemini API client
 gem "ruby-gemini-api"
 
-# Background job processing
-gem "sidekiq", "~> 7.2.0"
-gem "connection_pool", "~> 2.4"
-
 # CSV parsing (no longer in default gems since Ruby 3.4)
 gem "csv"
 
@@ -68,8 +64,6 @@ group :development, :test do
 end
 
 group :test do
-  gem "rspec-sidekiq"
-
   # Audits gems for known security defects (use config/bundler-audit.yml to ignore issues)
   gem "bundler-audit", require: false
 

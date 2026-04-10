@@ -98,7 +98,7 @@ module MemoriaCore
              out: File::NULL, err: File::NULL)
     end
 
-    # git -C を使ってDir.chdirを避ける（Sidekiq並行性対策）
+    # git -C を使ってDir.chdirを避ける（並行ジョブ実行時のスレッドセーフ対策）
     def git(*args)
       success = system("git", "-C", @repo_path, *args,
                        out: File::NULL, err: File::NULL)

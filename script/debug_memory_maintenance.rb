@@ -11,7 +11,6 @@ wakeup = character.scheduled_wakeups.create!(
   status: "pending"
 )
 
-worker = ThinkingLoopWorker.new
-worker.perform(character.id, wakeup.id)
+ThinkingLoopJob.perform_now(character.id, wakeup.id)
 
 puts "Done!"

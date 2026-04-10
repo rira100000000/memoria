@@ -46,14 +46,13 @@ RSpec.describe "Api::Chats", type: :request do
         }.to change(ChatResult, :count).by(1)
       end
 
-      it "enqueues a ChatWorker job" do
-        Sidekiq::Testing.fake!
+      it "enqueues a ChatJob" do
         expect {
           post chat_api_character_path(character),
             headers: auth_headers(user),
             params: { message: "hello" },
             as: :json
-        }.to change(ChatWorker.jobs, :size).by(1)
+        }.to have_enqueued_job(ChatJob)
       end
     end
 

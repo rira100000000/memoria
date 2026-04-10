@@ -1,11 +1,11 @@
 require "rails_helper"
 
-RSpec.describe ConversationTimeoutWorker, type: :worker do
+RSpec.describe ConversationTimeoutJob, type: :job do
   let(:user) { create(:user) }
   let(:character) { create(:character, user: user) }
 
   it "is enqueued in the default queue" do
-    expect(described_class.get_sidekiq_options["queue"].to_s).to eq("default")
+    expect(described_class.new.queue_name).to eq("default")
   end
 
   describe "#perform" do

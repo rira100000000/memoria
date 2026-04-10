@@ -1,3 +1,3 @@
 web: bin/rails server -p 3000
-worker: bundle exec sidekiq
+jobs: bin/jobs
 discord: bundle exec ruby bin/discord_bot.rb

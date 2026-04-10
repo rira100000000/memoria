@@ -25,8 +25,6 @@ RSpec.describe "Api::Summarize", type: :request do
 
     context "with valid params" do
       it "returns 202 with job_id" do
-        Sidekiq::Testing.fake!
-
         post summarize_api_character_path(character),
           headers: auth_headers(user),
           params: {
@@ -41,15 +39,13 @@ RSpec.describe "Api::Summarize", type: :request do
         expect(body["poll_url"]).to include("chat_results")
       end
 
-      it "enqueues SummarizeWorker" do
-        Sidekiq::Testing.fake! do
-          expect {
-            post summarize_api_character_path(character),
-              headers: auth_headers(user),
-              params: { conversation_text: "User: test" },
-              as: :json
-          }.to change(SummarizeWorker.jobs, :size).by(1)
-        end
+      it "enqueues SummarizeJob" do
+        expect {
+          post summarize_api_character_path(character),
+            headers: auth_headers(user),
+            params: { conversation_text: "User: test" },
+            as: :json
+        }.to have_enqueued_job(SummarizeJob)
       end
 
       it "stores metadata in ChatResult.usage" do
