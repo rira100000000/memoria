@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_10_155242) do
   create_table "api_usage_logs", force: :cascade do |t|
     t.integer "character_id"
     t.datetime "created_at", null: false
@@ -77,7 +77,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
     t.string "full_log_path"
     t.datetime "last_message_at"
     t.json "messages", default: [], null: false
-    t.string "pending_timeout_job_id"
     t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
@@ -112,7 +111,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_133241) do
     t.datetime "created_at", null: false
     t.string "purpose", null: false
     t.datetime "scheduled_at", null: false
-    t.string "sidekiq_job_id"
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
     t.index ["character_id", "status", "scheduled_at"], name: "idx_on_character_id_status_scheduled_at_c61cfa83a8"
