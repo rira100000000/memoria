@@ -19,6 +19,7 @@ module MemoriaCore
       @llm_client = llm_client
       @settings = settings
       @tpn_store = TpnStore.new(vault)
+      @fts_index = FtsIndex.new(vault).tap(&:initialize!)
     end
 
     # SummaryNoteファイルを処理してタグプロファイルを更新
@@ -194,6 +195,11 @@ module MemoriaCore
       body = build_tpn_body(tag_name, parsed, sn_file_name, sn_frontmatter)
 
       @tpn_store.save(tag_name, tpn_fm, body)
+
+      # BM25 索引更新
+      tpn_path = @tpn_store.path_for(tag_name)
+      tpn_content = Frontmatter.build(tpn_fm, body)
+      @fts_index.upsert(tpn_path, "TPN", tpn_content)
     end
 
     def build_tpn_body(tag_name, parsed, sn_file_name, sn_frontmatter)

@@ -16,6 +16,7 @@ class ReflectionService
     @vault.ensure_structure!
     @embedding_store = MemoriaCore::EmbeddingStore.new(@vault, @llm_client)
     @embedding_store.initialize!
+    @fts_index = MemoriaCore::FtsIndex.new(@vault).tap(&:initialize!)
   end
 
   # サマリーノートを生成
@@ -86,6 +87,9 @@ class ReflectionService
       sn_relative_path, sn_content, "SN",
       { title: parsed["conversationTitle"], tags: tags, importance: importance }
     )
+
+    # BM25 索引更新
+    @fts_index.upsert(sn_relative_path, "SN", sn_content)
 
     { file_path: sn_relative_path, base_name: sn_base, tags: tags, importance: importance }
   end

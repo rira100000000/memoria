@@ -17,11 +17,20 @@ module MemoriaCore
     IMPORTANCE_NEUTRAL = 5
     IMPORTANCE_BOOST_PER_POINT = 0.1
 
-    def initialize(vault, embedding_store, settings = {})
+    # Reciprocal Rank Fusion の定数。Anthropic Contextual Retrieval / Bruch et al.
+    # の推奨値 60 を採用。各検索手法 (vector / BM25) のランクを 1/(k+rank) に
+    # 写像してスコア統合する
+    RRF_K = 60
+    # RRF スコアは典型的に 0.0..0.03 程度になるので、既存の relevance スケール
+    # (0..100) と桁を揃えるために掛け算する
+    RRF_SCORE_SCALE = 3000
+
+    def initialize(vault, embedding_store, settings = {}, fts_index: nil)
       @vault = vault
       @embedding_store = embedding_store
       @settings = settings
       @tag_scores_cache = nil
+      @fts_index = fts_index || build_default_fts_index
     end
 
     # メインのコンテキスト取得メソッド
@@ -35,8 +44,8 @@ module MemoriaCore
 
       return result unless @embedding_store
 
-      # Step 1: セマンティック検索
-      semantic_items = semantic_search(user_prompt)
+      # Step 1: ベクトル検索 + BM25 のハイブリッド (RRF で統合)
+      semantic_items = hybrid_search(user_prompt)
       return result if semantic_items.empty?
 
       # Step 2: TPN/SN分離
@@ -67,7 +76,27 @@ module MemoriaCore
 
     private
 
-    def semantic_search(user_prompt)
+    def build_default_fts_index
+      return nil unless @vault.respond_to?(:vault_path) && @vault.vault_path
+      FtsIndex.new(@vault).tap(&:initialize!)
+    rescue => e
+      Rails.logger.warn("[ContextRetriever] FTS index unavailable: #{e.message}") if defined?(Rails)
+      nil
+    end
+
+    # ベクトル検索と BM25 検索を Reciprocal Rank Fusion で統合する。
+    # FTS 索引が無いか BM25 結果が空なら、ベクトル検索の結果のみを返す
+    def hybrid_search(user_prompt)
+      vector_items = vector_search(user_prompt)
+      return vector_items if @fts_index.nil?
+
+      bm25_items = bm25_search(user_prompt)
+      return vector_items if bm25_items.empty?
+
+      rrf_combine(vector_items, bm25_items)
+    end
+
+    def vector_search(user_prompt)
       query_embedding = @embedding_store.embed_query(user_prompt)
       return [] unless query_embedding
 
@@ -83,6 +112,51 @@ module MemoriaCore
           fetch_sn_item_from_path(entry["filePath"], r[:similarity])
         end
       end
+    end
+
+    def bm25_search(user_prompt)
+      top_k = @settings[:semantic_search_top_k] || 5
+      results = @fts_index.search(user_prompt, top_k: top_k * 2)
+
+      results.filter_map do |r|
+        # BM25 単独の絶対値は使わず、最終的なランキングは RRF が決める。
+        # ここでは便宜上 1.0 を入れておく (rrf_combine がランクで上書きする)
+        if r[:source_type] == "TPN"
+          fetch_tpn_item(r[:file_path], 1.0)
+        elsif r[:source_type] == "SN"
+          fetch_sn_item_from_path(r[:file_path], 1.0)
+        end
+      end
+    end
+
+    # Reciprocal Rank Fusion: 各検索手法のランクから 1/(k+rank) を加算し、
+    # 統合スコアで再ソートする。スコアスケールを既存の relevance (0-100 程度)
+    # に合わせるため RRF_SCORE_SCALE 倍する
+    def rrf_combine(vector_items, bm25_items)
+      scores = Hash.new(0.0)
+      seen = {}
+
+      vector_items.each_with_index do |item, rank|
+        key = item_key(item)
+        scores[key] += 1.0 / (RRF_K + rank + 1)
+        seen[key] ||= item
+      end
+
+      bm25_items.each_with_index do |item, rank|
+        key = item_key(item)
+        scores[key] += 1.0 / (RRF_K + rank + 1)
+        seen[key] ||= item
+      end
+
+      scores.sort_by { |_, s| -s }.map do |key, score|
+        item = seen[key]
+        item[:relevance] = score * RRF_SCORE_SCALE
+        item
+      end
+    end
+
+    def item_key(item)
+      "#{item[:source_type]}:#{item[:source_name]}"
     end
 
     def fetch_tpn_item(file_path, similarity)
