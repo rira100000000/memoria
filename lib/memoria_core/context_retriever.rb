@@ -10,6 +10,13 @@ module MemoriaCore
     EMOTION_BOOST_FACTOR = 1.2
     MAX_SNS_PER_TPN = 5
 
+    # Park et al. (Generative Agents) の importance スコアを乗算ブーストとして反映する。
+    # SN frontmatter の "importance" (1-10 の整数) を読み、5 を中立とした上で
+    # 1 ポイント差で IMPORTANCE_BOOST_PER_POINT (10%) スコアが変動する。
+    # importance 1: 0.6x / 5: 1.0x / 10: 1.5x
+    IMPORTANCE_NEUTRAL = 5
+    IMPORTANCE_BOOST_PER_POINT = 0.1
+
     def initialize(vault, embedding_store, settings = {})
       @vault = vault
       @embedding_store = embedding_store
@@ -205,11 +212,14 @@ module MemoriaCore
             adjusted *= calc_time_decay(days) if days
           end
 
-          # 感情ブースト
+          # 感情ブースト + importance ブースト
           sn_content = @vault.read("#{VaultManager::SN_DIR}/#{item[:source_name]}.md")
           if sn_content
             fm, = Frontmatter.parse(sn_content)
-            adjusted *= EMOTION_BOOST_FACTOR if fm && strong_emotion?(fm["mood"])
+            if fm
+              adjusted *= EMOTION_BOOST_FACTOR if strong_emotion?(fm["mood"])
+              adjusted *= importance_factor(fm["importance"])
+            end
           end
         end
 
@@ -305,6 +315,13 @@ module MemoriaCore
     def strong_emotion?(mood)
       return false unless mood
       STRONG_EMOTION_KEYWORDS.any? { |kw| mood.include?(kw) }
+    end
+
+    # 1-10 の importance を 0.6x..1.5x の乗算ブーストに変換する
+    def importance_factor(importance)
+      return 1.0 unless importance.is_a?(Numeric)
+      clamped = importance.to_f.clamp(1.0, 10.0)
+      1.0 + (clamped - IMPORTANCE_NEUTRAL) * IMPORTANCE_BOOST_PER_POINT
     end
 
     def deduplicate(items)

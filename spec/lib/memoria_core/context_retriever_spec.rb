@@ -44,4 +44,33 @@ RSpec.describe MemoriaCore::ContextRetriever do
       expect(result.sec).to eq(45)
     end
   end
+
+  describe "#importance_factor (private)" do
+    it "is 1.0 for nil (no importance recorded)" do
+      expect(retriever.send(:importance_factor, nil)).to eq(1.0)
+    end
+
+    it "is 1.0 for the neutral value 5" do
+      expect(retriever.send(:importance_factor, 5)).to eq(1.0)
+    end
+
+    it "boosts above neutral" do
+      expect(retriever.send(:importance_factor, 10)).to be_within(0.001).of(1.5)
+      expect(retriever.send(:importance_factor, 8)).to be_within(0.001).of(1.3)
+    end
+
+    it "attenuates below neutral" do
+      expect(retriever.send(:importance_factor, 1)).to be_within(0.001).of(0.6)
+      expect(retriever.send(:importance_factor, 3)).to be_within(0.001).of(0.8)
+    end
+
+    it "clamps out-of-range numbers" do
+      expect(retriever.send(:importance_factor, 15)).to be_within(0.001).of(1.5)
+      expect(retriever.send(:importance_factor, -5)).to be_within(0.001).of(0.6)
+    end
+
+    it "ignores non-numeric input" do
+      expect(retriever.send(:importance_factor, "high")).to eq(1.0)
+    end
+  end
 end

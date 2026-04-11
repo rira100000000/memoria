@@ -39,6 +39,7 @@ module MemoriaCore
         "embedding" => embedding,
         "title" => metadata[:title],
         "tags" => metadata[:tags],
+        "importance" => metadata[:importance],
         "updatedAt" => Time.now.iso8601,
       }
       save_index

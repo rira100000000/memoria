@@ -14,6 +14,7 @@ RSpec.describe ReflectionService do
               "conversationTitle": "テスト会話",
               "tags": ["テスト", "挨拶"],
               "mood": "明るい",
+              "importance": 7,
               "keyTakeaways": ["テストは成功した"],
               "actionItems": [],
               "reflectionBody": "## テーマ\\nテストの会話",
@@ -78,6 +79,43 @@ RSpec.describe ReflectionService do
       )
 
       expect(result[:base_name]).to start_with("SN-202601011200")
+    end
+
+    it "parses importance from the LLM response and stores it in the SN frontmatter" do
+      service = described_class.new(character)
+      result = service.generate(conversation_text: "User: test")
+
+      expect(result[:importance]).to eq(7)
+
+      sn_path = File.join(character.vault_path, result[:file_path])
+      content = File.read(sn_path)
+      fm, _body = MemoriaCore::Frontmatter.parse(content)
+      expect(fm["importance"]).to eq(7)
+    end
+  end
+
+  describe "#parse_importance (private)" do
+    let(:service) { described_class.new(character) }
+
+    it "accepts integers in 1-10" do
+      expect(service.send(:parse_importance, 7)).to eq(7)
+      expect(service.send(:parse_importance, 1)).to eq(1)
+      expect(service.send(:parse_importance, 10)).to eq(10)
+    end
+
+    it "accepts numeric strings in 1-10" do
+      expect(service.send(:parse_importance, "8")).to eq(8)
+    end
+
+    it "rejects out-of-range values" do
+      expect(service.send(:parse_importance, 0)).to be_nil
+      expect(service.send(:parse_importance, 11)).to be_nil
+      expect(service.send(:parse_importance, -3)).to be_nil
+    end
+
+    it "rejects nil and non-numeric input" do
+      expect(service.send(:parse_importance, nil)).to be_nil
+      expect(service.send(:parse_importance, "high")).to be_nil
     end
   end
 end

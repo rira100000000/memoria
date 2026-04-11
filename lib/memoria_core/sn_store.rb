@@ -117,7 +117,9 @@ module MemoriaCore
     end
 
     # SNのfrontmatterを構築
-    def self.build_frontmatter(title:, llm_role_name:, tags:, full_log_ref:, mood:, key_takeaways:, action_items:, semantic_definitions: [])
+    # importance: 1-10 の整数。Park et al. (Generative Agents) のスコアリング軸の1つで、
+    # 検索時の重み付けに使われる。記録を残す価値の高い会話ほど高スコア。
+    def self.build_frontmatter(title:, llm_role_name:, tags:, full_log_ref:, mood:, key_takeaways:, action_items:, semantic_definitions: [], importance: nil)
       fm = {
         "title" => title,
         "date" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -129,6 +131,7 @@ module MemoriaCore
         "key_takeaways" => key_takeaways || [],
         "action_items" => action_items || [],
       }
+      fm["importance"] = importance if importance
       fm["semantic_definitions"] = semantic_definitions if semantic_definitions.any?
       fm
     end
