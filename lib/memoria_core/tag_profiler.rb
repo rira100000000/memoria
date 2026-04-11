@@ -1,10 +1,18 @@
 require "json"
 
 module MemoriaCore
-  # SummaryNote のタグからTPNを生成・更���する
+  # SummaryNote のタグからTPNを生成・更新する
   class TagProfiler
     TAG_SCORES_FILE = VaultManager::TAG_SCORES_FILE
     CONCURRENCY = 5 # 将来の並列化用（現在は逐次処理）
+
+    # SN→TPN 昇格ゲート (Park et al. のスコアリング軸を取り入れる)
+    # importance_sum >= 10 (例: importance 5 の SN 2 件、または importance 10 の SN 1 件)
+    # または mention_frequency >= 3 (importance が低くても繰り返し言及されるテーマは昇格)
+    # を満たすまで、新規タグの TPN 生成は遅延される。これにより一過性のタグで
+    # TPN が乱立するのを防ぎつつ、単発でも非常に重要な会話は即座に TPN 化される。
+    PROMOTION_THRESHOLD_IMPORTANCE_SUM = 10
+    PROMOTION_THRESHOLD_FREQUENCY = 3
 
     def initialize(vault, llm_client, settings = {})
       @vault = vault
@@ -24,6 +32,8 @@ module MemoriaCore
       tags = Array(fm["tags"])
       return if tags.empty?
 
+      sn_importance = parse_sn_importance(fm["importance"])
+
       tag_scores = load_tag_scores
       sn_file_name = File.basename(sn_relative_path)
       sn_base_name = File.basename(sn_relative_path, ".md")
@@ -31,6 +41,29 @@ module MemoriaCore
       character_settings = @settings[:system_prompt] || ""
 
       tags.each do |tag|
+        bump_tag_score(tag_scores, tag, sn_file_name, sn_importance)
+
+        unless tag_promoted?(tag, tag_scores[tag])
+          if defined?(Rails)
+            Rails.logger.info(
+              "[TagProfiler] tag '#{tag}' below promotion gate " \
+              "(importance_sum=#{tag_scores[tag]["importance_sum"]}, freq=#{tag_scores[tag]["mention_frequency"]}); " \
+              "SN counted but TPN deferred"
+            )
+          end
+          next
+        end
+
+        unless tag_scores[tag]["promoted_at"]
+          tag_scores[tag]["promoted_at"] = Time.now.iso8601
+          if defined?(Rails)
+            Rails.logger.info(
+              "[TagProfiler] promoting tag '#{tag}' to TPN " \
+              "(importance_sum=#{tag_scores[tag]["importance_sum"]}, freq=#{tag_scores[tag]["mention_frequency"]})"
+            )
+          end
+        end
+
         update_tag_profile(
           tag_name: tag,
           sn_file_name: sn_file_name,
@@ -49,6 +82,41 @@ module MemoriaCore
     end
 
     private
+
+    # SN frontmatter の importance を 1-10 の整数に正規化する
+    # 値がない場合は 5 (中立) として扱う。これにより、importance を持たない
+    # 旧 SN を処理する際にもゲートロジックが破綻しない
+    def parse_sn_importance(raw)
+      return 5 if raw.nil?
+      n = Integer(raw) rescue nil
+      return 5 unless n
+      n.clamp(1, 10)
+    end
+
+    # tag_scores の集計値を更新する。LLM 呼び出しの有無に関わらず常に呼ばれる
+    def bump_tag_score(tag_scores, tag, sn_file_name, sn_importance)
+      tag_scores[tag] ||= {
+        "base_importance" => 50,
+        "mention_frequency" => 0,
+        "importance_sum" => 0,
+      }
+      tag_scores[tag]["mention_frequency"] = (tag_scores[tag]["mention_frequency"] || 0) + 1
+      tag_scores[tag]["importance_sum"] = (tag_scores[tag]["importance_sum"] || 0) + sn_importance
+      tag_scores[tag]["last_mentioned_in"] = "[[#{sn_file_name}]]"
+    end
+
+    # 昇格ゲートの判定。
+    # - 既に promoted_at が設定済み: 過去に昇格済みなのでスキップなし
+    # - 既存 TPN ファイルが存在: 旧バージョンで作られた TPN は legacy として扱う
+    # - importance_sum がしきい値以上: Park et al. の重み付け
+    # - mention_frequency がしきい値以上: 反復言及のテーマ
+    def tag_promoted?(tag_name, score)
+      return true if score["promoted_at"]
+      return true if @tpn_store.read_raw(tag_name)
+      return true if (score["importance_sum"] || 0) >= PROMOTION_THRESHOLD_IMPORTANCE_SUM
+      return true if (score["mention_frequency"] || 0) >= PROMOTION_THRESHOLD_FREQUENCY
+      false
+    end
 
     def update_tag_profile(tag_name:, sn_file_name:, sn_base_name:, sn_content:, sn_frontmatter:, tag_scores:, llm_role_name:, character_settings:)
       existing_raw = @tpn_store.read_raw(tag_name)
@@ -96,11 +164,8 @@ module MemoriaCore
       new_link = "[[#{sn_file_name}]]"
       tpn_fm["summary_notes"] = [new_link] + Array(tpn_fm["summary_notes"]).reject { |l| l == new_link }
 
-      # tag_scores更新
-      tag_scores[tag_name] ||= { "base_importance" => 50, "last_mentioned_in" => new_link, "mention_frequency" => 0 }
-      tag_scores[tag_name]["mention_frequency"] = (tag_scores[tag_name]["mention_frequency"] || 0) + 1
-      tag_scores[tag_name]["last_mentioned_in"] = new_link
-
+      # mention_frequency / last_mentioned_in / importance_sum はゲート判定の前段で
+      # bump_tag_score が更新済み。ここでは LLM 由来の base_importance だけ反映する
       if parsed["new_base_importance"].is_a?(Numeric) && parsed["new_base_importance"].between?(0, 100)
         tag_scores[tag_name]["base_importance"] = parsed["new_base_importance"]
       end
