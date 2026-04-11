@@ -1,4 +1,4 @@
-require "shellwords"
+require "open3"
 
 module MemoriaCore
   # Vaultをローカルgitリポジトリとして管理し、記憶変更時にスナップショットを取る
@@ -46,7 +46,7 @@ module MemoriaCore
 
     # 直近のコミット履歴
     def recent_history(limit = 20)
-      output = `git -C #{Shellwords.escape(@repo_path)} log --oneline -#{limit} 2>/dev/null`.strip
+      output = capture_git("log", "--oneline", "-#{limit.to_i}")
       output.split("\n").map do |line|
         sha, *msg = line.split(" ")
         { sha: sha, message: msg.join(" ") }
@@ -56,12 +56,12 @@ module MemoriaCore
     # --- ブランチ操作 ---
 
     def current_branch
-      output = `git -C #{Shellwords.escape(@repo_path)} branch --show-current 2>/dev/null`.strip
+      output = capture_git("branch", "--show-current")
       output.empty? ? nil : output
     end
 
     def list_branches
-      output = `git -C #{Shellwords.escape(@repo_path)} branch --format='%(refname:short)' 2>/dev/null`.strip
+      output = capture_git("branch", "--format=%(refname:short)")
       output.split("\n")
     end
 
@@ -87,7 +87,7 @@ module MemoriaCore
 
     # 現在のHEADコミットshaを返す
     def head_sha
-      output = `git -C #{Shellwords.escape(@repo_path)} rev-parse HEAD 2>/dev/null`.strip
+      output = capture_git("rev-parse", "HEAD")
       output.empty? ? nil : output
     end
 
@@ -99,6 +99,7 @@ module MemoriaCore
     end
 
     # git -C を使ってDir.chdirを避ける（並行ジョブ実行時のスレッドセーフ対策）
+    # 引数は配列で system に渡すため shell を経由せず、コマンドインジェクションは構造的に発生しない
     def git(*args)
       success = system("git", "-C", @repo_path, *args,
                        out: File::NULL, err: File::NULL)
@@ -106,6 +107,16 @@ module MemoriaCore
         Rails.logger.warn("[VaultVersioning] git #{args.first} failed (exit: #{$?.exitstatus})") if defined?(Rails)
       end
       success
+    end
+
+    # stdout を取得する系の git 呼び出し。Open3 を使うことで shell を経由せず、
+    # 引数の interpolation があっても構造的に injection が発生しない
+    def capture_git(*args)
+      stdout, _status = Open3.capture2("git", "-C", @repo_path, *args)
+      stdout.strip
+    rescue => e
+      Rails.logger.warn("[VaultVersioning] capture_git failed: #{e.message}") if defined?(Rails)
+      ""
     end
   end
 end
