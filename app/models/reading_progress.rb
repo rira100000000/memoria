@@ -30,7 +30,7 @@ class ReadingProgress < ApplicationRecord
     boundaries = parsed_chunk_boundaries
     return nil if boundaries.empty?
     boundary = boundaries.find { |b| b["end"] > from_position }
-    boundary ? [boundary["end"], boundary["label"]] : nil
+    boundary ? [boundary["end"], boundary["label"], boundary["temperature"]] : nil
   end
 
   # --- 読書ノート ---

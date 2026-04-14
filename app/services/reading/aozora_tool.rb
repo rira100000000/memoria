@@ -122,7 +122,7 @@ module Reading
         )
 
         chunk = text[0...chunk_end]
-        build_response(progress, chunk, chunk_label: boundaries.first["label"])
+        build_response(progress, chunk, chunk_label: boundaries.first["label"], temperature: boundaries.first["temperature"])
       end
 
       def continue_reading(character)
@@ -137,11 +137,12 @@ module Reading
         # chunk_boundariesから次のチャンクを取得
         result = progress.next_chunk_end(start_pos)
         if result
-          chunk_end, label = result
+          chunk_end, label, temperature = result
         else
           # フォールバック: 残り全部
           chunk_end = text.length
           label = ""
+          temperature = nil
         end
 
         finished = chunk_end >= text.length
@@ -153,15 +154,16 @@ module Reading
         progress.update_column(:cached_text, nil) if finished
 
         chunk = text[start_pos...chunk_end]
-        build_response(progress, chunk, chunk_label: label)
+        build_response(progress, chunk, chunk_label: label, temperature: temperature)
       end
 
-      def build_response(progress, chunk, chunk_label: nil)
+      def build_response(progress, chunk, chunk_label: nil, temperature: nil)
         {
           title: progress.title,
           author: progress.author,
           chunk: chunk,
           chunk_label: chunk_label,
+          temperature: temperature || "動",
           progress: "#{progress.current_position}/#{progress.total_length}字",
           finished: progress.status == "completed",
           source: progress.source_info,

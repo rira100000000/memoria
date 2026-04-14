@@ -60,12 +60,13 @@ module Reading
           ## 出力形式
           ```json
           [
-            {"last_index": 5, "label": "導入"},
-            {"last_index": 8, "label": "事件発覚"},
-            {"last_index": #{sentences.last[:index]}, "label": "結末"}
+            {"last_index": 5, "label": "導入", "temperature": "静"},
+            {"last_index": 8, "label": "事件発覚", "temperature": "動"},
+            {"last_index": #{sentences.last[:index]}, "label": "結末", "temperature": "熱"}
           ]
           ```
-          最後のチャンクのlast_indexは必ず#{sentences.last[:index]}にしてください。
+          - temperatureは物語のその場面の空気感: "静"(説明・描写・導入。穏やか)、"動"(展開・会話・変化)、"熱"(事件・感情爆発・クライマックス)
+          - 最後のチャンクのlast_indexは必ず#{sentences.last[:index]}にしてください。
           JSON配列のみを返してください。
         PROMPT
 
@@ -96,6 +97,7 @@ module Reading
           boundaries << {
             "end" => sentence[:end],
             "label" => entry["label"].to_s,
+            "temperature" => entry["temperature"].to_s.presence || "動",
           }
         end
 
