@@ -4,6 +4,10 @@
 # Plan documents (private)
 /plan/
 
+# Python bytecode caches (e.g. example adapters)
+__pycache__/
+*.pyc
+
 # Environment variables
 .env
 .env.local
