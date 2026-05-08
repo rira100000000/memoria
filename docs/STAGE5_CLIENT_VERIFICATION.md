@@ -82,7 +82,61 @@ bin/ms-smoke
 - WiFi 経由のレイテンシ
 - TLS 必須なファームが多い → ngrok / cloudflared 等で HTTPS 終端
 
-## 5.4 PC ↔ スタックチャン 移動デモ
+## 5.4 PC ↔ 別デバイス 移動デモ（サーバ側検証 ✅ 2026-05-08）
+
+aituber-kit / Stack-chan が SSE 購読を実装する前段として、サーバ側の transfer / utter / action / presence event の挙動を curl + SSE listener で検証済み。
+
+### 検証手順（再現方法）
+
+```bash
+# 2 デバイス登録
+DEVICE_NAME=main-pc bundle exec rails ms:device:register
+DEVICE_NAME=phone-rira bundle exec rails ms:device:register
+
+# 別シェル 1：main-pc 用 SSE 購読
+curl -N -H "Authorization: Bearer $MAIN_PC_KEY" \
+  http://localhost:3001/api/v1/devices/main-pc/events
+
+# 別シェル 2：phone-rira 用 SSE 購読
+curl -N -H "Authorization: Bearer $PHONE_KEY" \
+  http://localhost:3001/api/v1/devices/phone-rira/events
+
+# transfer / utter / action を順に叩く
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"to_device":"phone-rira","reason":"user_called"}' \
+  http://localhost:3001/api/v1/characters/<id>/transfer
+
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"hi","emotion":"warm"}' \
+  http://localhost:3001/api/v1/characters/<id>/utter
+
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"command":"dance","params":{"duration_sec":10}}' \
+  http://localhost:3001/api/v1/characters/<id>/action
+```
+
+### 検証結果
+
+- transfer 時、旧デバイスに `presence.departed`、新デバイスに `presence.arrived` が**正しい from/to slug 付き**で配信
+- utter / action は active な device にだけ届く（非 active の SSE には流れない）
+- DB の unique 制約 + atomic lock により presence は常に1行（「キャラはどこか一箇所」原則を担保）
+- Transfer ログテーブルに移動履歴が完全に蓄積
+
+### 残タスク（クライアント側）
+
+サーバ側挙動は完璧だが、以下のクライアント UI 反映が未実装：
+
+- aituber-kit に SSE 購読部を追加（`presence.departed` で「お出かけ中」表示、`utter` で台詞ふきだし、`action` で動作トリガー）
+- Stack-chan ファームに同等の購読を実装（5.3 の改造項目）
+
+ブラウザでの視覚確認用に `docs/examples/sse_viewer.html` を提供。Stage 5.6（aituber-kit emotion + presence パッチ）と Stage 5.3 で各クライアントへ展開する。
+
+---
+
+## 5.4 PC ↔ スタックチャン 移動デモ（実機検証）
 
 ### シナリオ
 1. PC（aituber-kit）でキャラと会話開始（presence: aituber-kit）
