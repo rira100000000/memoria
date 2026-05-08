@@ -414,7 +414,9 @@ end
 
 ### 8.3 HTTP — Python (FastAPI)
 
-外部プロセスとして HTTP エンドポイントを立てる場合、MS 側は HTTP アダプタプロキシ（標準同梱予定）を介してそれを呼び出します。
+外部プロセスとして HTTP エンドポイントを立てる場合、MS 側は同梱の HTTPアダプタ（`MS_ADAPTER=http`）を介してそれを呼び出します。
+
+**動作するフルサンプル**：[docs/examples/echo_adapter_python/](examples/echo_adapter_python/) — Docker でも直接 uvicorn でも起動可能。
 
 ```python
 # my_adapter.py

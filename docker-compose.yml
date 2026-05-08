@@ -61,3 +61,15 @@ services:
       - ./storage:/rails/storage
       - ${VAULT_HOST_PATH:-./tmp/vaults}:/vaults
     command: ["bin/rails", "solid_queue:start"]
+
+  # サンプル外部HTTPアダプタ（Python / FastAPI）。プロファイル opt-in：
+  #   docker compose --profile example up
+  # 使う場合は MS 側に MS_ADAPTER=http、MS_ADAPTER_URL=http://example-adapter:8080 を設定。
+  example-adapter:
+    profiles: ["example"]
+    build:
+      context: ./docs/examples/echo_adapter_python
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${MS_EXAMPLE_ADAPTER_PORT:-8080}:8080"

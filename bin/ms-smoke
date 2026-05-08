@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# MemoriaServer エンドツーエンドスモークテスト。
+# 用途：
+#   - PC 検証時に MS の主要エンドポイントが全て生きていることを確認
+#   - 新環境セットアップ後の動作確認
+#
+# 前提：
+#   - MS が起動済み（デフォルト http://localhost:3000）
+#   - 環境変数 MS_ADMIN_KEY / MS_DEVICE_KEY / MS_CHARACTER_REF が設定済み
+#     例: export MS_ADMIN_KEY=msak_... MS_DEVICE_KEY=msdk_... MS_CHARACTER_REF=ハル
+#   - もしくは bin/ms-setup の出力をコピー
+#
+# 使い方：
+#   bin/ms-smoke                                            # デフォルト http://localhost:3000
+#   MS_BASE_URL=http://memoria:3000 bin/ms-smoke            # 別ホスト
+#
+# 終了コード：全テストPass → 0、いずれか失敗 → 1
+
+set -uo pipefail
+
+BASE="${MS_BASE_URL:-http://localhost:3000}"
+ADMIN="${MS_ADMIN_KEY:-}"
+DEVICE="${MS_DEVICE_KEY:-}"
+CHAR="${MS_CHARACTER_REF:-}"
+
+pass=0
+fail=0
+
+check_env() {
+  local missing=()
+  [[ -z "$ADMIN" ]] && missing+=("MS_ADMIN_KEY")
+  [[ -z "$DEVICE" ]] && missing+=("MS_DEVICE_KEY")
+  [[ -z "$CHAR" ]] && missing+=("MS_CHARACTER_REF")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "ERROR: 以下の環境変数が未設定: ${missing[*]}"
+    echo "例:"
+    echo "  export MS_ADMIN_KEY=msak_..."
+    echo "  export MS_DEVICE_KEY=msdk_..."
+    echo "  export MS_CHARACTER_REF=ハル        # vault_dir_name または character.id"
+    exit 2
+  fi
+}
+
+# expect_status NAME EXPECTED_CODE METHOD URL [DATA] [BEARER]
+test_endpoint() {
+  local name="$1" expected="$2" method="$3" url="$4" data="${5:-}" bearer="${6:-$DEVICE}"
+
+  local args=(-sS -o /dev/null -w "%{http_code}" -X "$method")
+  args+=(-H "Authorization: Bearer $bearer")
+  if [[ -n "$data" ]]; then
+    args+=(-H "Content-Type: application/json" -d "$data")
+  fi
+
+  local actual
+  actual=$(curl "${args[@]}" "$BASE$url")
+
+  if [[ "$actual" == "$expected" ]]; then
+    printf "  ✅ %-50s %s\n" "$name" "$actual"
+    pass=$((pass + 1))
+  else
+    printf "  ❌ %-50s expected %s got %s\n" "$name" "$expected" "$actual"
+    fail=$((fail + 1))
+  fi
+}
+
+main() {
+  check_env
+
+  echo "MemoriaServer smoke test against $BASE"
+  echo ""
+
+  echo "[ping]"
+  test_endpoint "GET  /api/v1/ping (admin)"        200 GET  /api/v1/ping       "" "$ADMIN"
+  test_endpoint "GET  /api/v1/ping (device)"       200 GET  /api/v1/ping       "" "$DEVICE"
+  test_endpoint "GET  /api/v1/ping (no auth)"      401 GET  /api/v1/ping       "" "junk"
+  test_endpoint "GET  /api/v1/ping/admin (admin)"  200 GET  /api/v1/ping/admin "" "$ADMIN"
+  test_endpoint "GET  /api/v1/ping/admin (device)" 403 GET  /api/v1/ping/admin "" "$DEVICE"
+
+  echo ""
+  echo "[devices]"
+  test_endpoint "GET  /api/v1/devices (admin)"     200 GET  /api/v1/devices "" "$ADMIN"
+  test_endpoint "GET  /api/v1/devices (device)"    403 GET  /api/v1/devices "" "$DEVICE"
+
+  echo ""
+  echo "[character presence]"
+  test_endpoint "GET  /characters/$CHAR/presence"  200 GET  "/api/v1/characters/$CHAR/presence" "" "$DEVICE"
+
+  echo ""
+  echo "[chat completions]"
+  test_endpoint "POST /chat/completions (no model)" 400 POST /api/v1/chat/completions \
+    '{"messages":[{"role":"user","content":"x"}]}' "$DEVICE"
+  test_endpoint "POST /chat/completions (bad model)" 400 POST /api/v1/chat/completions \
+    '{"model":"gpt-4","messages":[{"role":"user","content":"x"}]}' "$DEVICE"
+  test_endpoint "POST /chat/completions (no auth)" 401 POST /api/v1/chat/completions \
+    "{\"model\":\"memoria/$CHAR\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}" "junk"
+  test_endpoint "POST /chat/completions (admin → 403)" 403 POST /api/v1/chat/completions \
+    "{\"model\":\"memoria/$CHAR\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}" "$ADMIN"
+
+  echo ""
+  echo "[real chat (LLM 呼び出しあり・少額のtoken消費)]"
+  echo "  POST /chat/completions (non-streaming)..."
+  resp=$(curl -sS -X POST -H "Authorization: Bearer $DEVICE" -H "Content-Type: application/json" \
+    -d "{\"model\":\"memoria/$CHAR\",\"messages\":[{\"role\":\"user\",\"content\":\"say only: ok\"}]}" \
+    "$BASE/api/v1/chat/completions" 2>&1)
+  if echo "$resp" | grep -q '"object":"chat.completion"'; then
+    printf "  ✅ %-50s ok\n" "non-streaming chat returns OpenAI response"
+    pass=$((pass + 1))
+  else
+    printf "  ❌ %-50s\n%s\n" "non-streaming chat" "$resp"
+    fail=$((fail + 1))
+  fi
+
+  echo "  POST /chat/completions (streaming)..."
+  stream_out=$(curl -sS -N -X POST -H "Authorization: Bearer $DEVICE" -H "Content-Type: application/json" \
+    -d "{\"model\":\"memoria/$CHAR\",\"messages\":[{\"role\":\"user\",\"content\":\"say only: ok\"}],\"stream\":true}" \
+    "$BASE/api/v1/chat/completions" 2>&1)
+  if echo "$stream_out" | grep -q '\[DONE\]'; then
+    printf "  ✅ %-50s ok\n" "streaming chat ends with [DONE]"
+    pass=$((pass + 1))
+  else
+    printf "  ❌ %-50s\n%s\n" "streaming chat" "$stream_out"
+    fail=$((fail + 1))
+  fi
+
+  echo ""
+  echo "[push API (admin)]"
+  test_endpoint "POST /characters/$CHAR/utter (admin)" 200 POST "/api/v1/characters/$CHAR/utter" \
+    '{"text":"smoke test","emotion":"curious"}' "$ADMIN"
+  test_endpoint "POST /characters/$CHAR/action (admin)" 200 POST "/api/v1/characters/$CHAR/action" \
+    '{"command":"wave"}' "$ADMIN"
+  test_endpoint "POST /characters/$CHAR/utter (device → 403)" 403 POST "/api/v1/characters/$CHAR/utter" \
+    '{"text":"x"}' "$DEVICE"
+
+  echo ""
+  echo "============================================================"
+  echo "Result: ${pass} pass, ${fail} fail"
+  echo "============================================================"
+
+  [[ $fail -eq 0 ]]
+}
+
+main "$@"

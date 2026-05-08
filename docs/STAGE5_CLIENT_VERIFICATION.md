@@ -19,7 +19,24 @@ docker compose exec app bin/ms-setup
 - `ADMIN_KEY` (msak_...)
 - `DEVICE_KEY` (msdk_...)
 
+## 5.1.5 ヘルパーツール
+
+接続前に動作確認するためのツール群：
+
+- `bin/ms-smoke` — 全 MS エンドポイントの疎通＋認可テスト（curl ベース）
+- `docs/examples/sse_viewer.html` — ブラウザで SSE イベントを視覚確認
+- `docs/examples/echo_adapter_python/` — HTTP アダプタの動作するサンプル実装
+
+```bash
+# 環境変数設定後に
+bin/ms-smoke
+```
+
+詳細：[docs/AITUBER_KIT_INTEGRATION.md](AITUBER_KIT_INTEGRATION.md)
+
 ## 5.2 aituber-kit 接続検証
+
+詳細手順は [docs/AITUBER_KIT_INTEGRATION.md](AITUBER_KIT_INTEGRATION.md) を参照。要点：
 
 ### 準備
 1. https://github.com/tegnike/aituber-kit を clone

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>MemoriaServer SSE Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; background: #1a1a1a; color: #ddd; }
+  h1 { font-size: 1.4em; }
+  fieldset { border: 1px solid #444; border-radius: 4px; padding: 1em; margin-bottom: 1em; }
+  label { display: block; margin: 0.5em 0; }
+  input { width: 100%; padding: 0.5em; box-sizing: border-box; background: #222; color: #fff; border: 1px solid #444; border-radius: 3px; font-family: monospace; }
+  button { padding: 0.6em 1.2em; background: #2a7; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 1em; }
+  button:disabled { background: #444; cursor: not-allowed; }
+  .event { margin: 0.4em 0; padding: 0.6em 0.8em; border-left: 3px solid #2a7; background: #222; font-family: monospace; font-size: 0.9em; word-break: break-all; }
+  .event.presence-arrived { border-left-color: #2a7; }
+  .event.presence-departed { border-left-color: #c73; }
+  .event.utter { border-left-color: #38e; }
+  .event.action { border-left-color: #c5c; }
+  .event.connected { border-left-color: #999; color: #999; }
+  .event-type { font-weight: bold; color: #fff; }
+  .event-time { color: #888; font-size: 0.8em; margin-left: 0.5em; }
+  .event-data { margin-top: 0.3em; color: #bbb; }
+  #status { padding: 0.4em 0.8em; border-radius: 3px; display: inline-block; }
+  .status-disconnected { background: #533; color: #fcc; }
+  .status-connecting { background: #553; color: #ffc; }
+  .status-connected { background: #353; color: #cfc; }
+</style>
+</head>
+<body>
+
+<h1>MemoriaServer SSE Viewer</h1>
+<p>デバイスの常駐イベントストリーム (<code>/api/v1/devices/:slug/events</code>) をブラウザでリアルタイム確認するためのデバッグツール。</p>
+
+<fieldset>
+  <legend>接続設定</legend>
+  <label>MS Base URL <input id="base" value="http://localhost:3000"></label>
+  <label>Device slug <input id="slug" placeholder="例: aituber-kit-pc"></label>
+  <label>Device key <input id="key" type="password" placeholder="msdk_..."></label>
+  <button id="connect">接続</button>
+  <button id="disconnect" disabled>切断</button>
+  <span id="status" class="status-disconnected">未接続</span>
+</fieldset>
+
+<fieldset>
+  <legend>受信イベント</legend>
+  <button id="clear" style="margin-bottom: 1em; background: #555;">クリア</button>
+  <div id="events"></div>
+</fieldset>
+
+<script>
+let xhr = null;
+let buffer = "";
+
+const $ = (id) => document.getElementById(id);
+const status = $("status");
+const events = $("events");
+
+function setStatus(text, cls) {
+  status.textContent = text;
+  status.className = "status-" + cls;
+}
+
+function addEvent(type, data, raw) {
+  const div = document.createElement("div");
+  div.className = "event " + type.replace(/\./g, "-");
+  const time = new Date().toLocaleTimeString();
+  div.innerHTML =
+    '<span class="event-type">' + escapeHtml(type) + '</span>' +
+    '<span class="event-time">' + time + '</span>' +
+    (data ? '<div class="event-data">' + escapeHtml(JSON.stringify(data)) + '</div>' : '');
+  events.insertBefore(div, events.firstChild);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function processBuffer() {
+  // SSE パース：空行で区切られたブロックを処理
+  let idx;
+  while ((idx = buffer.indexOf("\n\n")) !== -1) {
+    const block = buffer.slice(0, idx);
+    buffer = buffer.slice(idx + 2);
+
+    let eventType = "message";
+    let dataLines = [];
+    block.split("\n").forEach(line => {
+      if (line.startsWith(":")) {
+        addEvent("connected", null, line);
+      } else if (line.startsWith("event: ")) {
+        eventType = line.slice(7);
+      } else if (line.startsWith("data: ")) {
+        dataLines.push(line.slice(6));
+      }
+    });
+
+    if (dataLines.length > 0) {
+      try {
+        const data = JSON.parse(dataLines.join("\n"));
+        addEvent(eventType, data);
+      } catch {
+        addEvent(eventType, dataLines.join("\n"));
+      }
+    }
+  }
+}
+
+$("connect").onclick = () => {
+  const base = $("base").value.replace(/\/$/, "");
+  const slug = $("slug").value.trim();
+  const key = $("key").value.trim();
+  if (!slug || !key) { alert("Device slug と key を入力"); return; }
+
+  setStatus("接続中...", "connecting");
+  $("connect").disabled = true;
+  $("disconnect").disabled = false;
+  buffer = "";
+
+  // EventSource は Authorization ヘッダを送れないので XHR でストリーム読み取り
+  xhr = new XMLHttpRequest();
+  xhr.open("GET", base + "/api/v1/devices/" + encodeURIComponent(slug) + "/events");
+  xhr.setRequestHeader("Authorization", "Bearer " + key);
+  xhr.setRequestHeader("Accept", "text/event-stream");
+
+  let lastIdx = 0;
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState === 3) {
+      if (xhr.status !== 200 && xhr.status !== 0) {
+        setStatus("HTTP " + xhr.status, "disconnected");
+        return;
+      }
+      setStatus("接続中", "connected");
+      const newText = xhr.responseText.slice(lastIdx);
+      lastIdx = xhr.responseText.length;
+      buffer += newText;
+      processBuffer();
+    } else if (xhr.readyState === 4) {
+      setStatus("切断 (HTTP " + xhr.status + ")", "disconnected");
+      $("connect").disabled = false;
+      $("disconnect").disabled = true;
+    }
+  };
+  xhr.send();
+};
+
+$("disconnect").onclick = () => {
+  if (xhr) xhr.abort();
+};
+
+$("clear").onclick = () => {
+  events.innerHTML = "";
+};
+</script>
+</body>
+</html>
