@@ -135,6 +135,50 @@ UI 側で過去の会話を表示したいケース（`GET /api/v1/sessions/:id/
 
 これがクロスデバイス記憶継続の前提です。MS は会話履歴を保持しません。アダプタが真の保持者です。
 
+### 3.5 オプション：Capability negotiation（emotion / motion / servo 等）
+
+クライアントが `x_memoria.wants` で要求する付随情報（表情・動作・サーボ角度など）に応じて、アダプタは LLM に出力指示を注入し、応答チャンクに `x_memoria` フィールドを乗せて返せます。
+
+**リクエスト**：
+```json
+{"x_memoria": {"wants": ["emotion"]}}
+```
+
+**アダプタの respond 戻り値**（チャンク種別）：
+| チャンク | 内容 |
+|---|---|
+| `{ delta: "..." }` | 通常テキスト |
+| `{ x_memoria: { emotion: "happy" } }` | メタ情報（任意のタイミングで挿入） |
+| `{ done: true, metadata: {} }` | 終端 |
+
+**実装パターン（リファレンス）**：MS 同梱の `EmotionAwareMemoriaCore` は以下の方式：
+
+1. クライアントの `wants` を読み、登録済み Capability に解決
+2. system prompt に「応答中 `<x_memoria>{...}</x_memoria>` で値を返せ」を append
+3. LLM ストリームを `StreamingMetadataExtractor` でパース、タグを抽出
+4. 通常テキストは `{delta: ...}`、タグは `{x_memoria: {...}}` チャンクで yield
+
+クライアント側は最初の `x_memoria` チャンクを受け取った時点で表情等を切替えてから、続くテキストを表示することで「応答冒頭から表情が動く」自然な体験を作れます。
+
+**新 capability の追加**：
+
+```ruby
+# lib/memoria_server/capabilities/servo.rb
+MemoriaServer::Capability.register(MemoriaServer::Capability.new(
+  name: :servo,
+  value_format: '{"yaw": -30〜30, "pitch": 0〜45} の Hash',
+  value_extractor: ->(obj) {
+    s = obj["servo"]
+    return nil unless s.is_a?(Hash) && s["yaw"].is_a?(Numeric) && s["pitch"].is_a?(Numeric)
+    s
+  },
+))
+```
+
+これだけで Stack-chan 等のクライアントが `wants: ["servo"]` で要求できるようになります。capability 知識はアダプタ層に閉じ、memoria_core 本体（記憶管理）には侵入しません。
+
+組込みの emotion capability が認識する値：`neutral / happy / sad / angry / relaxed / surprised`（aituber-kit / VRoid 互換）。
+
 ---
 
 ## 4. アダプタ起点 push API
