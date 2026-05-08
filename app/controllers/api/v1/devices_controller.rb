@@ -64,6 +64,10 @@ module Api
 
       # 指定 device の Redis pub/sub チャンネルを購読し、SSE でクライアントに流す。
       # events / my_events から共通利用される。
+      #
+      # クライアント切断検知のため、定期的に keepalive コメント行を書き込む。
+      # write が IOError を投げたらクライアント側がいなくなったと判断し、購読解除する。
+      # （イベントが流れない静かな接続でもスレッドリークしないようにする）
       def stream_device_events(device)
         response.headers["Content-Type"] = "text/event-stream"
         response.headers["Cache-Control"] = "no-cache"
@@ -75,6 +79,19 @@ module Api
 
         # 接続直後にコメント行を送って TCP プロキシのバッファリングをフラッシュさせる
         response.stream.write(": connected to #{device.slug}\n\n")
+
+        # keepalive スレッド：15秒ごとに `: ping\n\n` を書き込み、書けなくなったら unsubscribe を依頼
+        keepalive_thread = Thread.new do
+          loop do
+            sleep 15
+            begin
+              response.stream.write(": ping\n\n")
+            rescue IOError, Errno::EPIPE
+              sub.unsubscribe rescue nil
+              break
+            end
+          end
+        end
 
         sub.subscribe(channel) do |on|
           on.message do |_chan, raw|
@@ -94,6 +111,7 @@ module Api
       rescue IOError, Errno::EPIPE
         # client disconnected — silent
       ensure
+        keepalive_thread&.kill rescue nil
         sub&.close rescue nil
         response.stream.close rescue nil
       end
