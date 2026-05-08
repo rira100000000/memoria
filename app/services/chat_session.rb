@@ -111,6 +111,71 @@ class ChatSession
     }
   end
 
+  # ストリーミング版 send_message。テキストデルタが届いた時点で yield し、
+  # 全ての Function Calling ループ完了後に { done: true, ... } を yield する。
+  # 戻り値は同期版と同じ { response:, usage: }。
+  # @yield [chunk] チャンクHash（{ delta: "..." } / { done: true, usage: ... }）
+  def send_message_stream(user_message, &block)
+    raise ArgumentError, "block required" unless block_given?
+
+    @chat_logger.setup! unless @chat_logger.current_log_path
+    @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
+
+    @record.append_message("user", user_message)
+    @chat_logger.log_user_message(user_message)
+
+    context = build_context(user_message)
+    system_instruction = @prompt_builder.build(context: context, channel: @channel)
+
+    gemini_messages = @record.messages.map do |m|
+      { role: m["role"] == "user" ? "user" : "model", parts: [{ text: m["content"] }] }
+    end
+
+    tools = build_tool_definitions
+
+    # 1st call: stream text deltas
+    result = @llm_client.chat_stream(gemini_messages, system_instruction: system_instruction, tools: tools) do |delta|
+      block.call(delta: delta)
+    end
+
+    # Function Calling ループ：ツール呼び出しがある間繰り返す。
+    # 継続呼び出しもストリーミング。
+    while result[:function_calls]&.any?
+      gemini_messages << { role: "model", parts: result[:raw_parts] }
+
+      function_responses = result[:function_calls].map do |fc|
+        tool_result = execute_tool(fc[:name], fc[:args])
+        Rails.logger.debug("[ChatSession] Tool call: #{fc[:name]}(#{fc[:args].to_json.slice(0, 100)})") if defined?(Rails)
+
+        if tool_result.is_a?(Hash) && tool_result[:log]
+          tool_result[:log].each { |entry| @chat_logger.log_ai_message(entry) }
+        end
+
+        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log) : tool_result
+        { name: fc[:name], response: api_response }
+      end
+
+      tool_response_content = {
+        role: "user",
+        parts: function_responses.map { |fr|
+          { functionResponse: { name: fr[:name], response: fr[:response] } }
+        },
+      }
+      gemini_messages = gemini_messages + [tool_response_content]
+
+      result = @llm_client.chat_stream(gemini_messages, system_instruction: system_instruction, tools: tools) do |delta|
+        block.call(delta: delta)
+      end
+    end
+
+    ai_response = result[:text]
+    @record.append_message("model", ai_response)
+    @chat_logger.log_ai_message(ai_response)
+
+    block.call(done: true, usage: result[:usage])
+    { response: ai_response, usage: result[:usage] }
+  end
+
   # チャットリセット（振り返り生成 + セッションクリア）
   # @return [Hash, nil] { file_path:, base_name:, tags:, full_log_path: }
   def reset!

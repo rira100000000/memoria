@@ -47,6 +47,9 @@ gem "rubyzip", "~> 2.3"
 # Discord Bot
 gem "discordrb", "~> 3.5"
 
+# MemoriaServer pub/sub backbone
+gem "redis", "~> 5.3"
+
 # Environment variables
 gem "dotenv-rails", groups: [:development, :test]
 

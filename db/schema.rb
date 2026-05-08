@@ -10,7 +10,17 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_10_155242) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_08_021308) do
+  create_table "admin_keys", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "key_hash", null: false
+    t.string "label"
+    t.datetime "last_used_at"
+    t.datetime "revoked_at"
+    t.datetime "updated_at", null: false
+    t.index ["key_hash"], name: "index_admin_keys_on_key_hash", unique: true
+  end
+
   create_table "api_usage_logs", force: :cascade do |t|
     t.integer "character_id"
     t.datetime "created_at", null: false
@@ -85,6 +95,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_10_155242) do
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
 
+  create_table "device_keys", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "device_id", null: false
+    t.string "key_hash", null: false
+    t.string "label"
+    t.datetime "last_used_at"
+    t.datetime "revoked_at"
+    t.datetime "updated_at", null: false
+    t.index ["device_id", "revoked_at"], name: "index_device_keys_on_device_id_and_revoked_at"
+    t.index ["device_id"], name: "index_device_keys_on_device_id"
+    t.index ["key_hash"], name: "index_device_keys_on_key_hash", unique: true
+  end
+
+  create_table "devices", force: :cascade do |t|
+    t.json "capabilities", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "last_heartbeat_at"
+    t.string "name", null: false
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.index ["slug"], name: "index_devices_on_slug", unique: true
+  end
+
+  create_table "presences", force: :cascade do |t|
+    t.integer "active_device_id"
+    t.integer "character_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "since"
+    t.datetime "updated_at", null: false
+    t.index ["active_device_id"], name: "index_presences_on_active_device_id"
+    t.index ["character_id"], name: "index_presences_on_character_id", unique: true
+  end
+
   create_table "reading_progresses", force: :cascade do |t|
     t.string "author", null: false
     t.text "cached_text"
@@ -117,6 +160,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_10_155242) do
     t.index ["character_id"], name: "index_scheduled_wakeups_on_character_id"
   end
 
+  create_table "transfers", force: :cascade do |t|
+    t.integer "character_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "from_device_id"
+    t.datetime "occurred_at", null: false
+    t.string "reason"
+    t.integer "to_device_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["character_id", "occurred_at"], name: "index_transfers_on_character_id_and_occurred_at"
+    t.index ["character_id"], name: "index_transfers_on_character_id"
+    t.index ["from_device_id"], name: "index_transfers_on_from_device_id"
+    t.index ["to_device_id"], name: "index_transfers_on_to_device_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "api_token", null: false
     t.datetime "created_at", null: false
@@ -136,6 +193,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_10_155242) do
   add_foreign_key "chat_results", "users"
   add_foreign_key "chat_sessions", "characters"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "device_keys", "devices"
+  add_foreign_key "presences", "characters"
+  add_foreign_key "presences", "devices", column: "active_device_id"
   add_foreign_key "reading_progresses", "characters"
   add_foreign_key "scheduled_wakeups", "characters"
+  add_foreign_key "transfers", "characters"
+  add_foreign_key "transfers", "devices", column: "from_device_id"
+  add_foreign_key "transfers", "devices", column: "to_device_id"
 end

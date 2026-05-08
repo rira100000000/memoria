@@ -66,6 +66,30 @@ class LlmClient
     result
   end
 
+  # ストリーミング版 chat。テキストデルタはブロックに yield され、最終的な
+  # 集約結果（function_calls 含む）は戻り値の Hash として返す。
+  # @yield [delta] テキストの差分（function_call のみのチャンクは ""）
+  # @return [Hash] { text:, function_calls:, raw_parts:, usage: }
+  def chat_stream(messages, system_instruction: nil, tools: nil, &block)
+    raise ArgumentError, "block required" unless block_given?
+
+    model = @main_model
+    params = {
+      contents: messages,
+      model: model,
+    }
+    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:tools] = tools if tools
+    apply_thinking_config!(params)
+
+    response = @client.chat(parameters: params) do |chunk_text, _raw|
+      block.call(chunk_text) unless chunk_text.to_s.empty?
+    end
+    result = parse_response(response, model)
+    track_usage(model, result[:usage])
+    result
+  end
+
   # Function Calling の結果を送り返して継続生成
   def send_function_response(messages, function_responses, system_instruction: nil, tools: nil)
     tool_response_content = {
@@ -102,11 +126,16 @@ class LlmClient
   private
 
   def apply_thinking_config!(params)
-    # thinkingConfigはtools(Function Calling)と併用不可のモデルがあるため、tools使用時はスキップ
-    return if params[:tools]
+    return if @thinking_budget <= 0
 
-    if @thinking_budget > 0
-      params[:generationConfig] ||= {}
+    model = params[:model] || @main_model
+    params[:generationConfig] ||= {}
+
+    if model.include?("gemini-3")
+      # Gemini 3系: thinkingLevel を使う (thinkingBudget は2.5系用)
+      params[:generationConfig][:thinkingConfig] = { thinkingLevel: "medium" }
+    else
+      # Gemini 2.5系: thinkingBudget を使う
       params[:generationConfig][:thinkingConfig] = { thinkingBudget: @thinking_budget }
     end
   end

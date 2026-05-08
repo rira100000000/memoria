@@ -15,6 +15,10 @@ class Character < ApplicationRecord
   has_many :chat_results, dependent: :destroy
   has_many :api_usage_logs, dependent: :nullify
 
+  # MemoriaServer
+  has_one :presence, dependent: :destroy
+  has_many :transfers, dependent: :destroy
+
   validates :name, presence: true
 
   scope :thinking_loop_active, -> { where(thinking_loop_enabled: true) }
