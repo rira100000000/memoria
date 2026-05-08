@@ -21,7 +21,7 @@ module MemoriaServer
         character_id: character.id,
         text: text,
         emotion: emotion,
-        metadata: metadata,
+        metadata: metadata
       })
     end
 
@@ -45,7 +45,7 @@ module MemoriaServer
       publish_to_device(device, "action", {
         character_id: character.id,
         command: command,
-        params: params,
+        params: params
       })
     end
 

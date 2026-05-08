@@ -68,7 +68,7 @@ class ChatSession
 
     # Gemini API 用メッセージ構築
     gemini_messages = @record.messages.map do |m|
-      { role: m["role"] == "user" ? "user" : "model", parts: [{ text: m["content"] }] }
+      { role: m["role"] == "user" ? "user" : "model", parts: [ { text: m["content"] } ] }
     end
 
     # LLM呼び出し（Function Calling対応のツール定義）
@@ -107,7 +107,7 @@ class ChatSession
 
     {
       response: ai_response,
-      usage: result[:usage],
+      usage: result[:usage]
     }
   end
 
@@ -128,7 +128,7 @@ class ChatSession
     system_instruction = @prompt_builder.build(context: context, channel: @channel)
 
     gemini_messages = @record.messages.map do |m|
-      { role: m["role"] == "user" ? "user" : "model", parts: [{ text: m["content"] }] }
+      { role: m["role"] == "user" ? "user" : "model", parts: [ { text: m["content"] } ] }
     end
 
     tools = build_tool_definitions
@@ -159,9 +159,9 @@ class ChatSession
         role: "user",
         parts: function_responses.map { |fr|
           { functionResponse: { name: fr[:name], response: fr[:response] } }
-        },
+        }
       }
-      gemini_messages = gemini_messages + [tool_response_content]
+      gemini_messages = gemini_messages + [ tool_response_content ]
 
       result = @llm_client.chat_stream(gemini_messages, system_instruction: system_instruction, tools: tools) do |delta|
         block.call(delta: delta)
@@ -247,7 +247,7 @@ class ChatSession
       narrative_summary: "",
       behavior_principles: load_behavior_principles,
       prospective_memory: prospective,
-      upcoming_schedules: schedules,
+      upcoming_schedules: schedules
     }
   end
 
@@ -298,11 +298,11 @@ class ChatSession
         parameters: {
           type: "OBJECT",
           properties: {
-            query: { type: "STRING", description: "検索クエリ" },
+            query: { type: "STRING", description: "検索クエリ" }
           },
-          required: ["query"],
-        },
-      },
+          required: [ "query" ]
+        }
+      }
     ]
 
     # アプリ層から追加されたツール定義をマージ
@@ -314,7 +314,7 @@ class ChatSession
       end
     end
 
-    [{ functionDeclarations: base_fns }]
+    [ { functionDeclarations: base_fns } ]
   end
 
   def execute_tool(name, args)

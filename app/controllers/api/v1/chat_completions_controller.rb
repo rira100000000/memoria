@@ -55,7 +55,7 @@ module Api
         ActiveModel::Type::Boolean.new.cast(params[:stream])
       end
 
-# 寛容モード：要求された character がこの device に active でなければ自動 transfer。
+      # 寛容モード：要求された character がこの device に active でなければ自動 transfer。
       def ensure_presence!(character, device)
         presence = Presence.find_or_create_by!(character: character)
         return if presence.active_device_id == device.id
@@ -108,11 +108,11 @@ module Api
           object: "chat.completion.chunk",
           created: created,
           model: model_label,
-          choices: [{
+          choices: [ {
             index: 0,
             delta: delta,
-            finish_reason: finish_reason,
-          }],
+            finish_reason: finish_reason
+          } ]
         }
         response.stream.write("data: #{body.to_json}\n\n")
       end
@@ -144,11 +144,11 @@ module Api
           object: "chat.completion",
           created: Time.current.to_i,
           model: "memoria/#{character.vault_dir_name}",
-          choices: [{
+          choices: [ {
             index: 0,
             message: message,
-            finish_reason: tool_calls ? "tool_calls" : "stop",
-          }],
+            finish_reason: tool_calls ? "tool_calls" : "stop"
+          } ]
         }
         body[:usage] = usage_to_openai(usage) if usage
         render json: body
@@ -159,7 +159,7 @@ module Api
         {
           prompt_tokens: u[:input_tokens] || u["input_tokens"] || 0,
           completion_tokens: u[:output_tokens] || u["output_tokens"] || 0,
-          total_tokens: u[:total_tokens] || u["total_tokens"] || 0,
+          total_tokens: u[:total_tokens] || u["total_tokens"] || 0
         }
       end
     end

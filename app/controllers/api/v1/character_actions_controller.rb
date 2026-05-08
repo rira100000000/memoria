@@ -65,7 +65,7 @@ module Api
         render json: {
           ok: true,
           reason: reason,
-          had_active_session: !result.nil?,
+          had_active_session: !result.nil?
         }
       end
 

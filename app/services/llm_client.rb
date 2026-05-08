@@ -32,10 +32,10 @@ class LlmClient
   def generate(prompt, tier: :main, system_instruction: nil, tools: nil)
     model = tier == :light ? @light_model : @main_model
     params = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      model: model,
+      contents: [ { role: "user", parts: [ { text: prompt } ] } ],
+      model: model
     }
-    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:systemInstruction] = { parts: [ { text: system_instruction } ] } if system_instruction
     params[:tools] = tools if tools
     apply_thinking_config!(params)
 
@@ -54,9 +54,9 @@ class LlmClient
     model = @main_model
     params = {
       contents: messages,
-      model: model,
+      model: model
     }
-    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:systemInstruction] = { parts: [ { text: system_instruction } ] } if system_instruction
     params[:tools] = tools if tools
     apply_thinking_config!(params)
 
@@ -76,9 +76,9 @@ class LlmClient
     model = @main_model
     params = {
       contents: messages,
-      model: model,
+      model: model
     }
-    params[:systemInstruction] = { parts: [{ text: system_instruction }] } if system_instruction
+    params[:systemInstruction] = { parts: [ { text: system_instruction } ] } if system_instruction
     params[:tools] = tools if tools
     apply_thinking_config!(params)
 
@@ -96,9 +96,9 @@ class LlmClient
       role: "user",
       parts: function_responses.map { |fr|
         { functionResponse: { name: fr[:name], response: fr[:response] } }
-      },
+      }
     }
-    all_messages = messages + [tool_response_content]
+    all_messages = messages + [ tool_response_content ]
     chat(all_messages, system_instruction: system_instruction, tools: tools)
   end
 
@@ -106,7 +106,7 @@ class LlmClient
   def embed(text)
     response = @client.embeddings(parameters: {
       model: EMBEDDING_MODEL,
-      content: { parts: [{ text: text }] },
+      content: { parts: [ { text: text } ] }
     })
     data = response.raw_data
     if data&.dig("error")
@@ -161,8 +161,8 @@ class LlmClient
       usage: {
         input_tokens: usage_meta["promptTokenCount"] || 0,
         output_tokens: usage_meta["candidatesTokenCount"] || 0,
-        total_tokens: usage_meta["totalTokenCount"] || 0,
-      },
+        total_tokens: usage_meta["totalTokenCount"] || 0
+      }
     }
   end
 end

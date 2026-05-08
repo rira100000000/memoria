@@ -9,7 +9,7 @@ module Api
         return if performed?
 
         render json: {
-          devices: Device.order(:slug).map { |d| device_summary(d) },
+          devices: Device.order(:slug).map { |d| device_summary(d) }
         }
       end
 
@@ -36,7 +36,7 @@ module Api
         render json: {
           ok: true,
           device: { slug: device.slug, name: device.name, last_heartbeat_at: device.reload.last_heartbeat_at&.iso8601 },
-          active_character: active_character,
+          active_character: active_character
         }
       end
 
@@ -97,7 +97,7 @@ module Api
           name: device.name,
           capabilities: device.capabilities,
           last_heartbeat_at: device.last_heartbeat_at&.iso8601,
-          active_character_id: Presence.find_by(active_device_id: device.id)&.character_id,
+          active_character_id: Presence.find_by(active_device_id: device.id)&.character_id
         }
       end
 
@@ -110,7 +110,7 @@ module Api
           last_heartbeat_at: device.last_heartbeat_at&.iso8601,
           active_character: present ? character_summary(present.character) : nil,
           recent_transfers: device.outgoing_transfers.order(occurred_at: :desc).limit(5).map { |t| transfer_summary(t) } +
-                            device.incoming_transfers.order(occurred_at: :desc).limit(5).map { |t| transfer_summary(t) },
+                            device.incoming_transfers.order(occurred_at: :desc).limit(5).map { |t| transfer_summary(t) }
         }
       end
 
@@ -118,7 +118,7 @@ module Api
         {
           id: character.id,
           slug: character.vault_dir_name,
-          name: character.name,
+          name: character.name
         }
       end
 
@@ -128,7 +128,7 @@ module Api
           from_device_slug: t.from_device&.slug,
           to_device_slug: t.to_device&.slug,
           reason: t.reason,
-          occurred_at: t.occurred_at.iso8601,
+          occurred_at: t.occurred_at.iso8601
         }
       end
     end

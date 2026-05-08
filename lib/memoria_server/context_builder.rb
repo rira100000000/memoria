@@ -25,7 +25,7 @@ module MemoriaServer
         functions: h[:functions],                   # 旧名 function calling もパススルー
         client_metadata: h[:client_metadata] || h[:metadata] || {},
         last_interaction_at: last_interaction_at,
-        elapsed_since: last_interaction_at ? (Time.current - last_interaction_at).to_i : nil,
+        elapsed_since: last_interaction_at ? (Time.current - last_interaction_at).to_i : nil
       }
     end
 

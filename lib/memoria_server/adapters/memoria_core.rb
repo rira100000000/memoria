@@ -46,7 +46,7 @@ module MemoriaServer
           {
             role: m["role"] == "model" ? "assistant" : m["role"],
             content: m["content"],
-            at: nil,  # ChatSessionRecord は per-message の timestamp を持たない（FL ログには記録）
+            at: nil  # ChatSessionRecord は per-message の timestamp を持たない（FL ログには記録）
           }
         end
       end

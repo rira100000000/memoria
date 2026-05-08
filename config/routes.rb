@@ -11,7 +11,7 @@ Rails.application.routes.draw do
       post "chat/completions", to: "chat_completions#create"
 
       # Device 管理
-      resources :devices, only: [:index, :show], param: :slug do
+      resources :devices, only: [ :index, :show ], param: :slug do
         post :heartbeat, on: :member
         get  :events,    on: :member  # SSE 常駐イベントチャンネル
       end
@@ -27,7 +27,7 @@ Rails.application.routes.draw do
       end
     end
 
-    resources :characters, only: [:index, :show, :create, :update, :destroy] do
+    resources :characters, only: [ :index, :show, :create, :update, :destroy ] do
       post :chat, on: :member, to: "chats#create"
       post :reset, on: :member, to: "chats#reset"
       post :summarize, on: :member, to: "summarize#create"
@@ -41,19 +41,19 @@ Rails.application.routes.draw do
       post "memories/recall", to: "memories#recall"
 
       # ブランチ管理
-      resources :branches, only: [:index, :create, :destroy], param: :name do
+      resources :branches, only: [ :index, :create, :destroy ], param: :name do
         post :checkout, on: :member
         post :merge, on: :member
       end
 
       # スナップショット
-      resources :snapshots, only: [:index, :create] do
+      resources :snapshots, only: [ :index, :create ] do
         post :restore, on: :collection
       end
     end
 
     get "aozora/search", to: "reading#search"
 
-    resources :chat_results, only: [:show]
+    resources :chat_results, only: [ :show ]
   end
 end

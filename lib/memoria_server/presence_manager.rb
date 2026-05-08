@@ -69,7 +69,7 @@ module MemoriaServer
       if from_device
         Push.publish_to_device(from_device, "presence.departed", {
           character_id: character.id,
-          reason: reason,
+          reason: reason
         })
       end
     end
@@ -79,13 +79,13 @@ module MemoriaServer
         Push.publish_to_device(from_device, "presence.departed", {
           character_id: character.id,
           to_device_slug: to_device.slug,
-          reason: reason,
+          reason: reason
         })
       end
       Push.publish_to_device(to_device, "presence.arrived", {
         character_id: character.id,
         from_device_slug: from_device&.slug,
-        reason: reason,
+        reason: reason
       })
     end
   end

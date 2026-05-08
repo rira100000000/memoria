@@ -11,8 +11,8 @@ RSpec.describe MemoriaServer::ContextBuilder do
         "messages" => [
           { "role" => "user", "content" => "first" },
           { "role" => "assistant", "content" => "reply" },
-          { "role" => "user", "content" => "second" },
-        ],
+          { "role" => "user", "content" => "second" }
+        ]
       }
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:current_input]).to eq("second")
@@ -22,8 +22,8 @@ RSpec.describe MemoriaServer::ContextBuilder do
       payload = {
         "messages" => [
           { "role" => "system", "content" => "you are a cat" },
-          { "role" => "user", "content" => "hi" },
-        ],
+          { "role" => "user", "content" => "hi" }
+        ]
       }
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:client_system_prompt]).to eq("you are a cat")
@@ -34,8 +34,8 @@ RSpec.describe MemoriaServer::ContextBuilder do
         "messages" => [
           { "role" => "system", "content" => "rule 1" },
           { "role" => "system", "content" => "rule 2" },
-          { "role" => "user", "content" => "hi" },
-        ],
+          { "role" => "user", "content" => "hi" }
+        ]
       }
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:client_system_prompt]).to eq("rule 1\n\nrule 2")
@@ -46,9 +46,9 @@ RSpec.describe MemoriaServer::ContextBuilder do
         "messages" => [
           { "role" => "user", "content" => [
             { "type" => "text", "text" => "what is this?" },
-            { "type" => "image_url", "image_url" => { "url" => "data:..." } },
-          ] },
-        ],
+            { "type" => "image_url", "image_url" => { "url" => "data:..." } }
+          ] }
+        ]
       }
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:current_input]).to eq("what is this?")
@@ -56,9 +56,9 @@ RSpec.describe MemoriaServer::ContextBuilder do
 
     it "passes through tools and tool_choice" do
       payload = {
-        "messages" => [{ "role" => "user", "content" => "x" }],
-        "tools" => [{ "type" => "function", "function" => { "name" => "f" } }],
-        "tool_choice" => "auto",
+        "messages" => [ { "role" => "user", "content" => "x" } ],
+        "tools" => [ { "type" => "function", "function" => { "name" => "f" } } ],
+        "tool_choice" => "auto"
       }
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:tools]).to be_present
@@ -66,14 +66,14 @@ RSpec.describe MemoriaServer::ContextBuilder do
     end
 
     it "computes elapsed_since from last_interaction_at" do
-      payload = { "messages" => [{ "role" => "user", "content" => "hi" }] }
+      payload = { "messages" => [ { "role" => "user", "content" => "hi" } ] }
       one_hour_ago = 1.hour.ago
       ctx = described_class.build(character: character, device: device, payload: payload, last_interaction_at: one_hour_ago)
       expect(ctx[:elapsed_since]).to be_within(5).of(3600)
     end
 
     it "handles nil device" do
-      payload = { "messages" => [{ "role" => "user", "content" => "hi" }] }
+      payload = { "messages" => [ { "role" => "user", "content" => "hi" } ] }
       ctx = described_class.build(character: character, device: nil, payload: payload)
       expect(ctx[:device_id]).to be_nil
       expect(ctx[:device_slug]).to be_nil

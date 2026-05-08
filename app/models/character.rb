@@ -53,7 +53,7 @@ class Character < ApplicationRecord
       "name" => name,
       "appearance" => appearance,
       "traits" => traits,
-      "adopted_at" => Time.current.strftime("%Y-%m-%d %H:%M"),
+      "adopted_at" => Time.current.strftime("%Y-%m-%d %H:%M")
     })
   end
 

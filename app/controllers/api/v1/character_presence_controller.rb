@@ -12,7 +12,7 @@ module Api
         render json: {
           character: { id: @character.id, slug: @character.vault_dir_name, name: @character.name },
           active_device: active_device ? { slug: active_device.slug, name: active_device.name } : nil,
-          since: presence&.since&.iso8601,
+          since: presence&.since&.iso8601
         }
       end
 
@@ -43,7 +43,7 @@ module Api
           transferred: result[:transferred],
           from_device_slug: result[:from_device]&.slug,
           to_device_slug: result[:to_device].slug,
-          reason: reason,
+          reason: reason
         }
       end
 

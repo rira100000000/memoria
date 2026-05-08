@@ -6,7 +6,7 @@ module Api
           ok: true,
           authenticated_as: admin? ? "admin" : "device",
           device: device? ? { slug: current_device.slug, name: current_device.name } : nil,
-          server_time: Time.current.iso8601,
+          server_time: Time.current.iso8601
         }
       end
 
