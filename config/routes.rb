@@ -16,6 +16,9 @@ Rails.application.routes.draw do
         get  :events,    on: :member  # SSE 常駐イベントチャンネル
       end
 
+      # 認証中の device 自身のイベント購読（slug 不要の便利エンドポイント）
+      get "me/events", to: "devices#my_events"
+
       # Character スコープ（プレゼンス・push 系）
       # ref は id（数値）または vault_dir_name のどちらでもOK
       scope "characters/:character_ref" do

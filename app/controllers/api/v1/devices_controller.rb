@@ -50,6 +50,21 @@ module Api
           return forbidden!("device key required for own device events stream")
         end
 
+        stream_device_events(device)
+      end
+
+      # GET /api/v1/me/events — 認証されたデバイスキーが指す自デバイスのイベントを購読する。
+      # クライアントが slug を知らなくても device_key だけで購読できる便利エンドポイント。
+      def my_events
+        return forbidden!("device key required for /me/events") unless device?
+        stream_device_events(current_device)
+      end
+
+      private
+
+      # 指定 device の Redis pub/sub チャンネルを購読し、SSE でクライアントに流す。
+      # events / my_events から共通利用される。
+      def stream_device_events(device)
         response.headers["Content-Type"] = "text/event-stream"
         response.headers["Cache-Control"] = "no-cache"
         response.headers["X-Accel-Buffering"] = "no"
@@ -82,8 +97,6 @@ module Api
         sub&.close rescue nil
         response.stream.close rescue nil
       end
-
-      private
 
       def can_access_device?(device)
         return true if admin?
