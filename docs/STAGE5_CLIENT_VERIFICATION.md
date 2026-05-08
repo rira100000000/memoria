@@ -136,6 +136,56 @@ curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 
 ---
 
+## 5.6 emotion engine + aituber-kit パッチ（✅ 2026-05-08）
+
+### 完了：サーバ側 capability negotiation
+
+クライアントが `x_memoria.wants` で要求する capability に応じてバックエンドが LLM への出力指示を注入する仕組みを実装：
+
+- リクエスト：`{"x_memoria":{"wants":["emotion"]}}`
+- LLM が応答中に `<x_memoria>{"emotion":"happy"}</x_memoria>` 形式の sentinel タグを挿入
+- MS の `StreamingMetadataExtractor` がストリーム中にタグを抽出し `delta.x_memoria.emotion` チャンクとして配信
+- インライン挿入のため、応答中の表情変化と同期する
+
+実 LLM（Gemini 2.5 Flash）で動作確認済み：応答冒頭に `delta.x_memoria.emotion=neutral` チャンクが出てから、テキスト本体のチャンク群が続くシーケンス。
+
+### 完了：aituber-kit 翻訳パッチ
+
+aituber-kit リポジトリの `src/lib/api-services/customApi.ts` のレスポンス変換ストリームに以下を追加：
+
+```typescript
+// MemoriaServer 互換: delta.x_memoria.emotion を `[emotion]` インラインタグに翻訳
+const xMemEmotion = data.choices?.[0]?.delta?.x_memoria?.emotion
+if (typeof xMemEmotion === 'string' && xMemEmotion.length > 0) {
+  const synthetic = {
+    type: 'text-delta',
+    delta: `[${xMemEmotion}] `,
+  }
+  controller.enqueue(encoder.encode(`data: ${JSON.stringify(synthetic)}\n`))
+  if (data.choices[0].delta.content === undefined) continue
+}
+```
+
+aituber-kit には `[happy] こんにちは` 形式の inline emotion タグを VRoid 表情に変換する既存機構（`features/chat/handlers.ts` の `extractEmotion`）があるため、MS の `delta.x_memoria.emotion` を翻訳すれば下流ロジックは無改造で動く。
+
+emotion 値域は MS 側（`neutral / happy / sad / angry / relaxed / surprised`）と aituber-kit `EMOTIONS` 定数が**完全一致**しているため、マッピング不要。
+
+### スマホからの利用方法
+
+aituber-kit Custom Body に以下を追加：
+```json
+{"model":"memoria/3","stream":true,"x_memoria":{"wants":["emotion"]}}
+```
+
+これでチャットを送るとキャラの表情が応答内容に応じて切替わる。
+
+### 残タスク
+
+- aituber-kit のフォークを公式に PR（パッチは小さい・後方互換）
+- presence event 購読（SSE）も同様にパッチを当てて「お出かけ中」表示を実装（次フェーズ）
+
+---
+
 ## 5.4 PC ↔ スタックチャン 移動デモ（実機検証）
 
 ### シナリオ
