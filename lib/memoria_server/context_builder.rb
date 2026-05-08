@@ -24,6 +24,7 @@ module MemoriaServer
         tool_choice: h[:tool_choice],
         functions: h[:functions],                   # 旧名 function calling もパススルー
         client_metadata: h[:client_metadata] || h[:metadata] || {},
+        x_memoria: h[:x_memoria] || {},             # クライアントの capability 宣言（{wants: [...]}）
         last_interaction_at: last_interaction_at,
         elapsed_since: last_interaction_at ? (Time.current - last_interaction_at).to_i : nil
       }

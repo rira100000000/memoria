@@ -4,31 +4,34 @@ class ChatSession
   attr_reader :character, :chat_logger
 
   # ChatSessionRecordから復元 or 新規作成
-  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil)
+  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
     record = ChatSessionRecord.active
       .find_or_create_by!(character: character, user: user) do |r|
         r.status = "active"
         r.messages = []
       end
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction)
   end
 
-  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil)
+  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction)
   end
 
   # @param extra_tools [Array<Hash>, nil] アプリ層から追加するFunction Calling定義（functionDeclarationsの配列）
   # @param extra_tool_executor [Proc, nil] アプリ層のツール実行 lambda { |name, args| result_hash or nil }
   #   nilを返すとChatSession内蔵のツール（semantic_search）にフォールバック
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil)
+  # @param extra_system_instruction [String, nil] PromptBuilder で生成された通常 system prompt の末尾に
+  #   付け加える追加指示。MS のアダプタが capability 由来の出力形式指示を注入するために使う。
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
     @character = character
     @record = record
     @trigger_type = trigger_type
     @channel = channel
     @extra_tools = extra_tools
     @extra_tool_executor = extra_tool_executor
+    @extra_system_instruction = extra_system_instruction
     tracker = build_usage_tracker
     @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
@@ -64,7 +67,7 @@ class ChatSession
     context = build_context(user_message)
 
     # システムインストラクション構築
-    system_instruction = @prompt_builder.build(context: context, channel: @channel)
+    system_instruction = build_system_instruction(context)
 
     # Gemini API 用メッセージ構築
     gemini_messages = @record.messages.map do |m|
@@ -125,7 +128,7 @@ class ChatSession
     @chat_logger.log_user_message(user_message)
 
     context = build_context(user_message)
-    system_instruction = @prompt_builder.build(context: context, channel: @channel)
+    system_instruction = build_system_instruction(context)
 
     gemini_messages = @record.messages.map do |m|
       { role: m["role"] == "user" ? "user" : "model", parts: [ { text: m["content"] } ] }
@@ -235,6 +238,14 @@ class ChatSession
 
   def llm_role_name
     @character.name
+  end
+
+  # PromptBuilder で生成した system instruction の末尾に、
+  # MS のアダプタが渡してきた追加指示を append する。
+  def build_system_instruction(context)
+    base = @prompt_builder.build(context: context, channel: @channel)
+    return base if @extra_system_instruction.to_s.empty?
+    "#{base}\n\n#{@extra_system_instruction}"
   end
 
   def build_context(user_message)

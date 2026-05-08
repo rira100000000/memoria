@@ -86,9 +86,12 @@ module Api
           if chunk[:delta]
             delta_payload = { content: chunk[:delta] }
             delta_payload[:role] = "assistant" if first_delta
-            delta_payload[:x_memoria] = { emotion: chunk[:emotion] } if chunk[:emotion]
             first_delta = false
             write_sse(completion_id, created, model_label, delta: delta_payload, finish_reason: nil)
+          elsif chunk[:x_memoria]
+            # capability 出力（emotion / motion / servo 等）。OpenAI 互換の delta に
+            # x_memoria 拡張フィールドとして乗せる。クライアントは未対応なら無視できる
+            write_sse(completion_id, created, model_label, delta: { x_memoria: chunk[:x_memoria] }, finish_reason: nil)
           elsif chunk[:tool_calls]
             write_sse(completion_id, created, model_label, delta: { tool_calls: chunk[:tool_calls] }, finish_reason: nil)
           elsif chunk[:done]
@@ -119,14 +122,16 @@ module Api
 
       def batch_response(character:, context:)
         full_text = +""
-        emotion = nil
+        x_memoria = {}
         usage = nil
         tool_calls = nil
 
         MemoriaServer.adapter.respond(context[:current_input], context: context).each do |chunk|
           if chunk[:delta]
             full_text << chunk[:delta]
-            emotion ||= chunk[:emotion]
+          elsif chunk[:x_memoria]
+            # 同じキーが繰り返し更新される場合は last-wins
+            x_memoria.merge!(chunk[:x_memoria])
           elsif chunk[:tool_calls]
             tool_calls ||= []
             tool_calls.concat(Array(chunk[:tool_calls]))
@@ -136,7 +141,7 @@ module Api
         end
 
         message = { role: "assistant", content: full_text }
-        message[:x_memoria] = { emotion: emotion } if emotion
+        message[:x_memoria] = x_memoria if x_memoria.any?
         message[:tool_calls] = tool_calls if tool_calls
 
         body = {

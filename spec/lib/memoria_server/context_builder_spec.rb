@@ -78,5 +78,20 @@ RSpec.describe MemoriaServer::ContextBuilder do
       expect(ctx[:device_id]).to be_nil
       expect(ctx[:device_slug]).to be_nil
     end
+
+    it "passes through x_memoria capability declarations" do
+      payload = {
+        "messages" => [{ "role" => "user", "content" => "hi" }],
+        "x_memoria" => { "wants" => ["emotion"] },
+      }
+      ctx = described_class.build(character: character, device: device, payload: payload)
+      expect(ctx[:x_memoria]).to eq({ wants: ["emotion"] })
+    end
+
+    it "defaults x_memoria to empty hash when absent" do
+      payload = { "messages" => [{ "role" => "user", "content" => "hi" }] }
+      ctx = described_class.build(character: character, device: device, payload: payload)
+      expect(ctx[:x_memoria]).to eq({})
+    end
   end
 end

@@ -28,6 +28,8 @@ module MemoriaServer
       instance = case kind
       when "memoria_core", ""
         MemoriaServer::Adapters::MemoriaCore.new
+      when "emotion_aware_memoria_core"
+        MemoriaServer::Adapters::EmotionAwareMemoriaCore.new
       when "http"
         MemoriaServer::Adapters::Http.new
       else
@@ -68,8 +70,12 @@ end
 
 require_relative "memoria_server/redis_client"
 require_relative "memoria_server/adapter"
+require_relative "memoria_server/capability"
+require_relative "memoria_server/capabilities/emotion"
+require_relative "memoria_server/streaming_metadata_extractor"
 require_relative "memoria_server/context_builder"
 require_relative "memoria_server/push"
 require_relative "memoria_server/presence_manager"
 require_relative "memoria_server/adapters/memoria_core"
+require_relative "memoria_server/adapters/emotion_aware_memoria_core"
 require_relative "memoria_server/adapters/http"

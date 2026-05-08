@@ -36,6 +36,12 @@ RSpec.describe MemoriaServer, "adapter loader" do
     ENV.delete("MS_ADAPTER_URL")
   end
 
+  it "loads EmotionAwareMemoriaCore when MS_ADAPTER=emotion_aware_memoria_core" do
+    ENV["MS_ADAPTER"] = "emotion_aware_memoria_core"
+    expect(MemoriaServer.adapter).to be_a(MemoriaServer::Adapters::EmotionAwareMemoriaCore)
+    ENV.delete("MS_ADAPTER")
+  end
+
   it "raises on unknown MS_ADAPTER" do
     ENV["MS_ADAPTER"] = "NoSuchAdapter"
     expect { MemoriaServer.adapter }.to raise_error(MemoriaServer::Error, /Unknown MS_ADAPTER/)

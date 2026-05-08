@@ -20,7 +20,7 @@ module MemoriaServer
           session = build_session(character)
           session.send_message_stream(input) do |chunk|
             if chunk[:delta]
-              yielder << { delta: chunk[:delta], emotion: nil }
+              yielder << { delta: chunk[:delta] }
             elsif chunk[:done]
               yielder << { done: true, metadata: { usage: chunk[:usage] } }
             end
