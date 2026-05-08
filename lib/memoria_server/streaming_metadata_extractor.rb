@@ -19,6 +19,14 @@ module MemoriaServer
     OPEN_TAG = "<x_memoria>".freeze
     CLOSE_TAG = "</x_memoria>".freeze
 
+    # ストリーミングを通さず、すでに完結したテキストから sentinel タグだけを取り除く。
+    # ChatSessionRecord 等への保存前フィルタとして使い、履歴汚染を防ぐ用途。
+    def self.strip_tags(text)
+      return text if text.nil?
+      pattern = Regexp.new("#{Regexp.escape(OPEN_TAG)}.*?#{Regexp.escape(CLOSE_TAG)}", Regexp::MULTILINE)
+      text.gsub(pattern, "").gsub(/\n{3,}/, "\n\n").strip
+    end
+
     def initialize(capabilities: [])
       @capabilities = capabilities
       @text_buffer = +""

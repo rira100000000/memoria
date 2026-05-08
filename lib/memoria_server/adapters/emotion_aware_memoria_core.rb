@@ -22,6 +22,8 @@ module MemoriaServer
           session = ::ChatSession.find_or_create(
             character, character.user,
             extra_system_instruction: build_instruction(capabilities),
+            # 履歴に sentinel タグが残ると LLM が真似てしまうため、保存前に除去する
+            extra_response_filter: ->(text) { MemoriaServer::StreamingMetadataExtractor.strip_tags(text) },
           )
 
           session.send_message_stream(input) do |chunk|

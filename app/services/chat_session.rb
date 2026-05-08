@@ -4,19 +4,19 @@ class ChatSession
   attr_reader :character, :chat_logger
 
   # ChatSessionRecordから復元 or 新規作成
-  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
+  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     record = ChatSessionRecord.active
       .find_or_create_by!(character: character, user: user) do |r|
         r.status = "active"
         r.messages = []
       end
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
   end
 
-  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
+  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction)
+    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
   end
 
   # @param extra_tools [Array<Hash>, nil] アプリ層から追加するFunction Calling定義（functionDeclarationsの配列）
@@ -24,7 +24,9 @@ class ChatSession
   #   nilを返すとChatSession内蔵のツール（semantic_search）にフォールバック
   # @param extra_system_instruction [String, nil] PromptBuilder で生成された通常 system prompt の末尾に
   #   付け加える追加指示。MS のアダプタが capability 由来の出力形式指示を注入するために使う。
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil)
+  # @param extra_response_filter [Proc, nil] LLM 応答テキストを ChatSessionRecord / ChatLogger に
+  #   保存する前に通過させるフィルタ。例：sentinel タグ除去で履歴汚染を防ぐ。
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     @character = character
     @record = record
     @trigger_type = trigger_type
@@ -32,6 +34,7 @@ class ChatSession
     @extra_tools = extra_tools
     @extra_tool_executor = extra_tool_executor
     @extra_system_instruction = extra_system_instruction
+    @extra_response_filter = extra_response_filter
     tracker = build_usage_tracker
     @llm_client = llm_client || LlmClient.new(usage_tracker: tracker)
     @vault = MemoriaCore::VaultManager.new(character.vault_path)
@@ -102,7 +105,7 @@ class ChatSession
       )
     end
 
-    ai_response = result[:text]
+    ai_response = filter_response(result[:text])
 
     # AI応答を記録
     @record.append_message("model", ai_response)
@@ -171,7 +174,7 @@ class ChatSession
       end
     end
 
-    ai_response = result[:text]
+    ai_response = filter_response(result[:text])
     @record.append_message("model", ai_response)
     @chat_logger.log_ai_message(ai_response)
 
@@ -246,6 +249,17 @@ class ChatSession
     base = @prompt_builder.build(context: context, channel: @channel)
     return base if @extra_system_instruction.to_s.empty?
     "#{base}\n\n#{@extra_system_instruction}"
+  end
+
+  # LLM の生応答テキストを ChatSessionRecord / ChatLogger に保存する前に、
+  # アダプタが渡してきたフィルタ（sentinel タグ除去等）を通す。
+  # フィルタ未指定の場合は素通し。
+  def filter_response(text)
+    return text if @extra_response_filter.nil?
+    @extra_response_filter.call(text)
+  rescue => e
+    Rails.logger.warn("[ChatSession] response filter failed: #{e.message}") if defined?(Rails)
+    text
   end
 
   def build_context(user_message)
