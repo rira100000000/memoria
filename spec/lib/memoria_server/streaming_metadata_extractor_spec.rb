@@ -1,7 +1,7 @@
 require "rails_helper"
 
 RSpec.describe MemoriaServer::StreamingMetadataExtractor do
-  let(:capabilities) { [MemoriaServer::Capabilities::EMOTION] }
+  let(:capabilities) { [MemoriaServer::Capabilities::Emotion::CAPABILITY] }
   let(:extractor) { described_class.new(capabilities: capabilities) }
 
   def collect(text)
@@ -87,7 +87,7 @@ RSpec.describe MemoriaServer::StreamingMetadataExtractor do
 
   describe "with multiple capabilities" do
     let(:capabilities) {
-      [MemoriaServer::Capabilities::EMOTION, MemoriaServer::Capabilities::MOTION]
+      [MemoriaServer::Capabilities::Emotion::CAPABILITY, MemoriaServer::Capabilities::Motion::CAPABILITY]
     }
 
     it "extracts emotion and motion from a single tag" do

@@ -5,7 +5,7 @@ module MemoriaServer
   # 通常テキスト（delta）とメタデータ（metadata）に分離する state machine。
   #
   # 使い方:
-  #   extractor = StreamingMetadataExtractor.new(capabilities: [Capabilities::EMOTION])
+  #   extractor = StreamingMetadataExtractor.new(capabilities: [Capabilities::Emotion::CAPABILITY])
   #   extractor.feed("<x_memoria>{\"emotion\":\"happy\"}</x_memoria>こんにちは") do |kind, payload|
   #     case kind
   #     when :text     then puts "TEXT: #{payload}"

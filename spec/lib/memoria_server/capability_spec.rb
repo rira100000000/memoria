@@ -27,7 +27,7 @@ RSpec.describe MemoriaServer::Capability do
     end
   end
 
-  describe MemoriaServer::Capabilities::EMOTION do
+  describe MemoriaServer::Capabilities::Emotion::CAPABILITY do
     it "extracts known emotion values" do
       expect(subject.parse_value({ "emotion" => "happy" })).to eq("happy")
       expect(subject.parse_value({ "emotion" => "sad" })).to eq("sad")
@@ -53,7 +53,7 @@ RSpec.describe MemoriaServer::Capability do
     end
   end
 
-  describe MemoriaServer::Capabilities::MOTION do
+  describe MemoriaServer::Capabilities::Motion::CAPABILITY do
     it "extracts known motion values" do
       expect(subject.parse_value({ "motion" => "happy_wiggle" })).to eq("happy_wiggle")
       expect(subject.parse_value({ "motion" => "idle" })).to eq("idle")
