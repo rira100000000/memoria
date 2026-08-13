@@ -1,5 +1,5 @@
 # デモ用vaultに対して記憶検索（recall）を試すスクリプト。
-# 埋め込みAPIが使えない場合はBM25（SQLite FTS5）のみで検索される。
+# ベクトル検索が使えない場合はBM25（SQLite FTS5）のみで検索される。
 #
 #   GEMINI_API_KEY=dummy bin/rails runner docs/examples/demo_recall.rb
 #

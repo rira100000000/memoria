@@ -42,7 +42,7 @@ sequenceDiagram
 
 ## 動かして見る
 
-同梱のデモ用vault（SummaryNote 4枚）に対して記憶検索を試せます。LLMのAPIキーは不要です（埋め込みが使えない場合はBM25のみで検索されます）。
+同梱のデモ用vault（SummaryNote 4枚）に対して記憶検索を試せます。LLMのAPIキーは不要です（ベクトル検索が使えない場合はBM25のみで検索されます）。
 
 ```bash
 GEMINI_API_KEY=dummy bin/rails runner docs/examples/demo_recall.rb
