@@ -1,0 +1,52 @@
+# Ignore MCP config
+.mcp.json
+
+# Plan documents (private)
+/plan/
+
+# Python bytecode caches (e.g. example adapters)
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Ignore bundler config.
+/.bundle
+
+# Ignore all environment files (except templates).
+/.env*
+!/.env*.erb
+
+# Ignore all logfiles and tempfiles.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+# Ignore pidfiles, but keep the directory.
+/tmp/pids/*
+!/tmp/pids/
+!/tmp/pids/.keep
+
+# Ignore storage (uploaded files in development and any SQLite databases).
+/storage/*
+!/storage/.keep
+/db/*.sqlite3
+/db/*.sqlite3-*
+
+# Ignore master key for decrypting credentials and more.
+/config/master.key
+/config/credentials/*.key
+
+# Ignore node_modules
+/node_modules
+
+# Aozora Bunko data (downloaded via rake aozora:setup)
+/data/aozora/
+
+# Ignore key files for decrypting credentials and more.
+/config/*.key
+
