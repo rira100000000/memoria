@@ -52,6 +52,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: dummy-key-for-ci
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
