@@ -1,6 +1,6 @@
 # memoria
 
-AIキャラクターに長期記憶を持たせるRails APIサーバです。会話は人間が読める・編集できる・gitで巻き戻せるMarkdownファイル（Obsidian互換のvault）として蓄積され、キャラクターは記憶を保ったままPC・スマホ・ロボットなどのデバイス間を移動できます。
+AIキャラクターに長期記憶を持たせるRails APIサーバです。会話は人間が読める・編集できる・gitで巻き戻せるMarkdownファイル（Obsidian互換のvault）として蓄積され、キャラクターは記憶を保ったままデバイス間を移動できます（aituber-kit・Discordのクライアントで検証済み）。
 
 クライアントからはOpenAI Chat Completions互換のAPI（`POST /api/v1/chat/completions`）として見えるため、既存のOpenAI対応クライアントをそのまま接続できます。会話するたびに記憶が整理・蓄積され、次の会話で「先週決めたこと」を踏まえた応答が返ります。
 
@@ -8,7 +8,7 @@ AIキャラクターに長期記憶を持たせるRails APIサーバです。会
 
 ```mermaid
 sequenceDiagram
-    participant C as クライアント<br>(aituber-kit / Stack-chan / Discord)
+    participant C as クライアント<br>(aituber-kit / Discord / 自作クライアント)
     participant MS as MemoriaServer
     participant A as アダプタ + LLM
     participant V as vault (Markdown記憶)
@@ -38,7 +38,7 @@ sequenceDiagram
 
 ## デバイス間プレゼンス
 
-キャラクターは常にちょうど1つのデバイスに存在します（DB制約で担保）。`POST /transfer` で移動すると、移動元のSSEに `presence.departed`、移動先に `presence.arrived` が配信され、移動先で直前の会話の続きができます。PCで会話 → ロボットへ転送 → 続きを話す、という流れの検証手順は [docs/AITUBER_KIT_INTEGRATION.md](docs/AITUBER_KIT_INTEGRATION.md) にあります。
+キャラクターは常にちょうど1つのデバイスに存在します（DB制約で担保）。`POST /transfer` で移動すると、移動元のSSEに `presence.departed`、移動先に `presence.arrived` が配信され、移動先で直前の会話の続きができます。PCのaituber-kitで会話 → 別デバイスへ転送 → 続きを話す、という流れの検証手順は [docs/AITUBER_KIT_INTEGRATION.md](docs/AITUBER_KIT_INTEGRATION.md) にあります。
 
 ## 動かして見る
 
