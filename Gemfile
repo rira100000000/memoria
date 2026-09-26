@@ -41,7 +41,7 @@ gem "ruby-gemini-api"
 gem "csv"
 
 # Zip file handling (Aozora Bunko text extraction)
-gem "rubyzip", "~> 2.3"
+gem "rubyzip", "~> 3.4"
 
 # Discord Bot
 gem "discordrb", "~> 3.5"
