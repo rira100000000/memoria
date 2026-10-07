@@ -23,7 +23,8 @@ namespace :aozora do
       zip_file.each do |entry|
         next unless entry.name.end_with?(".csv")
         FileUtils.rm_f(csv_path)
-        entry.extract(csv_path.to_s)
+        # rubyzip 3 では第1引数が destination_directory からの相対パス
+        entry.extract(csv_path.basename.to_s, destination_directory: dir.to_s)
       end
     end
 
