@@ -451,6 +451,7 @@ DEPENDENCIES
   discordrb (~> 3.5)
   dotenv-rails
   factory_bot_rails
+  fugit (~> 1.11)
   kamal
   puma (>= 5.0)
   rack-cors

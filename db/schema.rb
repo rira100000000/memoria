@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_08_021308) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_120000) do
   create_table "admin_keys", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "key_hash", null: false
@@ -152,7 +152,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_08_021308) do
     t.string "action"
     t.integer "character_id", null: false
     t.datetime "created_at", null: false
+    t.string "origin", default: "self", null: false
     t.string "purpose", null: false
+    t.string "recurrence"
+    t.boolean "remember", default: true, null: false
     t.datetime "scheduled_at", null: false
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false

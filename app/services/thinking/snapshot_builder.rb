@@ -72,7 +72,7 @@ module Thinking
         lines << ""
         lines << "今後の予定:"
         upcoming.each do |s|
-          lines << "  #{s.scheduled_at.in_time_zone('Asia/Tokyo').strftime('%m/%d %H:%M')} — #{s.purpose}"
+          lines << "  #{s.summary_line}"
         end
       end
 

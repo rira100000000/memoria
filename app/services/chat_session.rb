@@ -4,19 +4,19 @@ class ChatSession
   attr_reader :character, :chat_logger
 
   # ChatSessionRecordから復元 or 新規作成
-  def self.find_or_create(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
+  def self.find_or_create(character, user, channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     record = ChatSessionRecord.active
       .find_or_create_by!(character: character, user: user) do |r|
         r.status = "active"
         r.messages = []
       end
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
+    new(character, record: record, channel: channel, platform: platform, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
   end
 
-  def self.find_active(character, user, channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
+  def self.find_active(character, user, channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
-    new(character, record: record, channel: channel, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
+    new(character, record: record, channel: channel, platform: platform, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
   end
 
   # @param extra_tools [Array<Hash>, nil] アプリ層から追加するFunction Calling定義（functionDeclarationsの配列）
@@ -26,11 +26,13 @@ class ChatSession
   #   付け加える追加指示。MS のアダプタが capability 由来の出力形式指示を注入するために使う。
   # @param extra_response_filter [Proc, nil] LLM 応答テキストを ChatSessionRecord / ChatLogger に
   #   保存する前に通過させるフィルタ。例：sentinel タグ除去で履歴汚染を防ぐ。
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
+  # @param platform [Symbol, nil] 会話の経路（:discord など）。プラグインがツールを出し分けるのに使う
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     @character = character
     @record = record
     @trigger_type = trigger_type
     @channel = channel
+    @platform = platform
     @extra_tools = extra_tools
     @extra_tool_executor = extra_tool_executor
     @extra_system_instruction = extra_system_instruction
@@ -247,8 +249,8 @@ class ChatSession
   # MS のアダプタが渡してきた追加指示を append する。
   def build_system_instruction(context)
     base = @prompt_builder.build(context: context, channel: @channel)
-    return base if @extra_system_instruction.to_s.empty?
-    "#{base}\n\n#{@extra_system_instruction}"
+    plugin_segments = MemoriaServer::Plugin.prompt_segments(@character, scene: :chat)
+    [base, plugin_segments, @extra_system_instruction].map(&:to_s).reject(&:empty?).join("\n\n")
   end
 
   # LLM の生応答テキストを ChatSessionRecord / ChatLogger に保存する前に、
@@ -277,11 +279,10 @@ class ChatSession
   end
 
   def build_schedule_context
-    upcoming = @character.scheduled_wakeups.upcoming.limit(10)
-    return "" if upcoming.empty?
-    upcoming.map { |s|
-      "#{s.scheduled_at.in_time_zone('Asia/Tokyo').strftime('%m/%d %H:%M')} — #{s.purpose} (ID:#{s.id})"
-    }.join("\n")
+    schedules = @character.scheduled_wakeups.upcoming.limit(10).to_a +
+      @character.scheduled_wakeups.proposed.order(:scheduled_at).to_a
+    return "" if schedules.empty?
+    schedules.map { |s| s.summary_line(with_id: true) }.join("\n")
   end
 
   def scan_action_items
@@ -330,6 +331,9 @@ class ChatSession
       }
     ]
 
+    # プラグインのツール
+    base_fns += MemoriaServer::Plugin.gemini_declarations(@character, scene: :chat, platform: @platform)
+
     # アプリ層から追加されたツール定義をマージ
     if @extra_tools
       @extra_tools.each do |tool_def|
@@ -348,6 +352,10 @@ class ChatSession
       result = @extra_tool_executor.call(name, args)
       return result if result
     end
+
+    # プラグインのツール
+    result = MemoriaServer::Plugin.execute(name, args, character: @character, scene: :chat, platform: @platform)
+    return result if result
 
     # memoria内蔵ツール
     case name

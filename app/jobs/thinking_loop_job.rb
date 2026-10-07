@@ -3,38 +3,86 @@
 class ThinkingLoopJob < ApplicationJob
   queue_as :low
 
+  # スケジュールなしの思考ループのみ対象。予定経由の実行は perform_wakeup 内で
+  # 失敗を捕まえて知らせるので、ここまで例外が上がらない
   retry_on StandardError, wait: :polynomially_longer, attempts: 2
+
+  # 予定経由の実行で、LLM呼び出し等が失敗したときにやり直す回数と間隔
+  WAKEUP_ATTEMPTS = 2
+  WAKEUP_RETRY_WAIT = 30.seconds
 
   # @param character_id [Integer]
   # @param wakeup_id [Integer, nil] ScheduledWakeupのID（スケジュール経由の場合）
-  def perform(character_id, wakeup_id = nil)
+  # @param scheduled_at [Integer, nil] 積んだ時点の予定時刻（epoch秒）。予定が繰り越された後の古いジョブを見分ける
+  def perform(character_id, wakeup_id = nil, scheduled_at = nil)
     character = Character.find(character_id)
 
-    # スケジュール経由の場合、実行済みにマーク
-    wakeup = wakeup_id ? ScheduledWakeup.find_by(id: wakeup_id) : nil
-    if wakeup
-      return if wakeup.status != "pending"  # キャンセル済みならスキップ
-      wakeup.execute!
+    if wakeup_id
+      wakeup = ScheduledWakeup.find_by(id: wakeup_id)
+      return unless wakeup&.status == "pending"  # キャンセル済み・承認待ちならスキップ
+      return if scheduled_at && wakeup.scheduled_at.to_i != scheduled_at  # 繰り越し済みの古いジョブ
+
+      perform_wakeup(character, wakeup)
     else
       # スケジュールなしの直接実行はthinking_loop_enabled必須
       return unless character.thinking_loop_enabled?
+
+      unless ApiBudget.can_spend?(character.user, "thinking_loop")
+        Rails.logger.info("[ThinkingLoopJob] Budget exceeded for Character##{character_id}")
+        return
+      end
+
+      think(character)
+    end
+  rescue => e
+    Rails.logger.error("[ThinkingLoopJob] Error: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
+    raise
+  end
+
+  private
+
+  def perform_wakeup(character, wakeup)
+    due_at = wakeup.scheduled_at
+
+    # 繰り返しの予定は、実行より先に次の回を予約する（この回が失敗しても連鎖が切れないように）
+    if wakeup.recurring?
+      stale = wakeup.stale?
+      wakeup.advance!
+      if stale
+        notify_failure(character, wakeup, due_at, "サーバが止まっていたため、この回は飛ばしました。次は#{format_time(wakeup.scheduled_at)}です。")
+        return
+      end
+    else
+      wakeup.execute!
     end
 
-    # バジェットチェック
     unless ApiBudget.can_spend?(character.user, "thinking_loop")
-      Rails.logger.info("[ThinkingLoopJob] Budget exceeded for Character##{character_id}")
+      Rails.logger.info("[ThinkingLoopJob] Budget exceeded for Character##{character.id}")
+      notify_failure(character, wakeup, due_at, "今日のAPI予算を使い切っていたため、動けませんでした。")
       return
     end
 
+    attempts = 0
+    begin
+      attempts += 1
+      think(character, wakeup: wakeup, due_at: due_at)
+    rescue => e
+      Rails.logger.error("[ThinkingLoopJob] Wakeup##{wakeup.id} attempt #{attempts} failed: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
+      if attempts < WAKEUP_ATTEMPTS
+        sleep(WAKEUP_RETRY_WAIT)
+        retry
+      end
+      notify_failure(character, wakeup, due_at, "エラーで実行できませんでした（#{e.class}: #{e.message.to_s.truncate(120)}）。")
+    end
+  end
+
+  def think(character, wakeup: nil, due_at: nil)
     core = MemoriaCore::Core.new(character.vault_path)
     health = Thinking::ThoughtHealthMonitor.report(core)
 
     # Step 0: 今の状況を集める（スケジュールの目的も含める）
     snapshot = Thinking::SnapshotBuilder.build(core, character, health)
-    if wakeup
-      snapshot += "\n\n今回起きた理由: #{wakeup.purpose}"
-      snapshot += "\n予定していた行動: #{wakeup.action}" if wakeup.action.present?
-    end
+    snapshot += wakeup_context(wakeup, due_at) if wakeup
 
     # Step 1-2: 思考の実行
     tracker = build_usage_tracker(character.user, character)
@@ -48,21 +96,47 @@ class ThinkingLoopJob < ApplicationJob
       llm_client: llm_client
     )
 
-    # Step 3: 体験をmemoria-coreに記憶として渡す
-    save_as_memory(core, character, result, llm_client)
+    # Step 3: 体験をmemoria-coreに記憶として渡す（記憶に残さない予定は省く）
+    save_as_memory(core, character, result, llm_client) unless wakeup && !wakeup.remember
 
-    # Step 4: ユーザーへの発話（AIが共有したいと判断した場合のみ）
-    if result.wants_to_share?
-      MessageDispatcher.dispatch(character, result.share_message)
+    # Step 4: ユーザーへの発話
+    # 通常はAIが共有したいと判断した場合のみ。「伝える」予定は必ず送る
+    message = result.share_message.presence
+    if message.nil? && wakeup&.action == "share"
+      message = result.summary.presence ||
+        "⚠️ memoria: 予定「#{wakeup.purpose}」は実行しましたが、伝える内容が空でした。"
     end
+    MessageDispatcher.dispatch(character, message) if message
 
-    Rails.logger.info("[ThinkingLoopJob] Character##{character_id} completed. Summary: #{result.summary}")
-  rescue => e
-    Rails.logger.error("[ThinkingLoopJob] Error: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
-    raise
+    Rails.logger.info("[ThinkingLoopJob] Character##{character.id} completed. Summary: #{result.summary}")
   end
 
-  private
+  def wakeup_context(wakeup, due_at)
+    text = +"\n\n今回起きた理由: #{wakeup.purpose}"
+    text << "\n予定していた行動: #{wakeup.action}" if wakeup.action.present?
+    text << "\nこれは繰り返しの予定です（#{wakeup.recurrence}）。" if wakeup.recurring?
+    if wakeup.action == "share"
+      text << "\nこの予定ではマスターに必ず伝えることになっています。share_message に伝える内容を書いてください。"
+    end
+    late = Time.current - due_at
+    if late > 5.minutes
+      text << "\n予定の#{format_time(due_at)}より#{(late / 60).round}分遅れて起きました（サーバが止まっていた可能性があります）。"
+    end
+    text
+  end
+
+  # 黙って止まらないように、知らせるべき予定の失敗・スキップは連絡手段に送る
+  def notify_failure(character, wakeup, due_at, reason)
+    Rails.logger.warn("[ThinkingLoopJob] Wakeup##{wakeup.id} not completed: #{reason}")
+    return unless wakeup.notify_on_failure?
+
+    MessageDispatcher.dispatch(character, "⚠️ memoria: 予定「#{wakeup.purpose}」（#{format_time(due_at)}）について: #{reason}")
+  end
+
+  def format_time(time)
+    time.in_time_zone(ScheduledWakeup::TIME_ZONE).strftime("%m/%d %H:%M")
+  end
+
 
   def save_as_memory(core, character, result, llm_client)
     conversation_text = result.to_conversation_text

@@ -129,7 +129,7 @@ class PromptBuilder
     if context[:upcoming_schedules] && !context[:upcoming_schedules].empty?
       sections << <<~SCHED
         ## あなたの予定
-        以下はあなたが自分で設定した今後の予定である。会話の流れで自然に関連する場合は、予定の存在を踏まえて振る舞え。不要になった予定はcancel_scheduleツールでキャンセルできる。
+        以下はあなたの今後の予定である（自分で入れたものと、マスターに頼まれたものを含む）。会話の流れで自然に関連する場合は、予定の存在を踏まえて振る舞え。不要になった予定はcancel_scheduleツールでキャンセルできる。「承認待ちの提案」は、マスターが承認を明言したらapprove_scheduleツールで有効にできる。
         #{context[:upcoming_schedules]}
       SCHED
     end

@@ -16,6 +16,8 @@ module Thinking
       複数の予定を入れることもできます（例: 朝の挨拶と夜のリマインダー）。
       list_schedulesで今後の予定を確認、cancel_scheduleでキャンセルできます。
       特に理由がなければ長めの間隔で構いません。
+      毎日・毎週など繰り返したい予定は repeat にcron式で指定できます。
+      あなたが自分で入れた繰り返しの予定は、マスターが承認するまで動きません。
 
       ## 終わったら
       以下のJSONで教えてください:
@@ -53,6 +55,8 @@ module Thinking
       last_reading_context = nil  # { progress_id:, finished: }
 
       prompt = build_prompt(character) + "\n\n" + snapshot
+      plugin_segments = MemoriaServer::Plugin.prompt_segments(character, scene: :thinking)
+      prompt += "\n\n" + plugin_segments if plugin_segments.present?
 
       # システムインストラクション
       prompt_builder = PromptBuilder.new(character)
@@ -182,7 +186,6 @@ module Thinking
         }
 
         fns = [memory_fn]
-        fns += Thinking::ScheduleTools.definitions[:functionDeclarations]
         fns += Thinking::MemoryMaintenanceTools.definitions[:functionDeclarations]
         fns += Thinking::WebSearchTool.definition[:functionDeclarations]
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
@@ -191,6 +194,9 @@ module Thinking
           fns += Reading::AozoraTool.definition[:functionDeclarations]
           fns += Reading::TalkToCompanionTool.definition[:functionDeclarations] if character.reading_companion
         end
+
+        # 予定の管理などはプラグインとして足される
+        fns += MemoriaServer::Plugin.gemini_declarations(character, scene: :thinking)
 
         [{ functionDeclarations: fns }]
       end
@@ -210,8 +216,6 @@ module Thinking
             name: fc[:args]["name"],
             appearance: fc[:args]["appearance"]
           )
-        when "list_schedules", "add_schedule", "cancel_schedule"
-          Thinking::ScheduleTools.execute(fc[:name], fc[:args], character: character, autonomous: true)
         when "list_yesterdays_memories", "merge_memories", "archive_memory"
           Thinking::MemoryMaintenanceTools.execute(fc[:name], fc[:args], core: core, character: character, llm_client: llm_client)
         when "web_search"
@@ -234,7 +238,8 @@ module Thinking
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
         else
-          { error: "Unknown tool: #{fc[:name]}" }
+          MemoriaServer::Plugin.execute(fc[:name], fc[:args], character: character, scene: :thinking) ||
+            { error: "Unknown tool: #{fc[:name]}" }
         end
 
         # Gemini APIのfunctionResponse.responseはStructが必須（文字列不可）

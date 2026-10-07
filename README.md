@@ -83,9 +83,10 @@ bundle exec rspec         # テスト
 
 - OpenAI互換API + SSEストリーミング（感情などの拡張は `x_memoria` フィールドで受け渡し。capability negotiationは [docs/ADAPTER_README.md](docs/ADAPTER_README.md)）
 - 記憶検索API（`POST /api/characters/:id/memories/recall`）、記憶のブランチ・スナップショットAPI
-- 自律思考ループ（会話がない間の記憶整理・考えごと）
+- 自律思考ループ（会話がない間の記憶整理・考えごと）と予定（単発・繰り返し。実行できなかった予定は連絡手段に通知）
 - 読書機能（青空文庫の作品を読み、内容が記憶に蓄積される）
 - Discord bot、音声書き起こし・読み上げエンドポイント
+- プラグイン（キャラクターにツールと指示を足す拡張。[docs/PLUGIN_README.md](docs/PLUGIN_README.md)）
 
 ## 技術スタック
 
