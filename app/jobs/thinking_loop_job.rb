@@ -219,7 +219,7 @@ class ThinkingLoopJob < ApplicationJob
       when "narration"
         lines << "【原文】\n#{entry["text"]}\n"
       when "dialogue"
-        speaker = entry["speaker"] == "hal" ? character.name : companion_name
+        speaker = entry["speaker"] == "companion" ? companion_name : character.name
         lines << "#{speaker}: #{entry["text"]}\n"
       end
     end

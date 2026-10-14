@@ -59,7 +59,7 @@ RSpec.describe ReadingProgress, type: :model do
       rp.append_note("最初の感想", chunk_range: "800")
       expect(rp.parsed_notes.size).to eq(1)
       expect(rp.parsed_notes.first["type"]).to eq("dialogue")
-      expect(rp.parsed_notes.first["speaker"]).to eq("hal")
+      expect(rp.parsed_notes.first["speaker"]).to eq("reader")
       expect(rp.parsed_notes.first["text"]).to eq("最初の感想")
     end
   end
@@ -69,17 +69,17 @@ RSpec.describe ReadingProgress, type: :model do
       rp = create(:reading_progress)
       rp.append_reading_log([
         { "type" => "narration", "text" => "原文テキスト", "chunk_range" => "800" },
-        { "type" => "dialogue", "speaker" => "hal", "text" => "感想" },
+        { "type" => "dialogue", "speaker" => "reader", "text" => "感想" },
         { "type" => "dialogue", "speaker" => "companion", "text" => "いいね" },
       ])
       expect(rp.parsed_notes.size).to eq(3)
       expect(rp.parsed_notes[0]["type"]).to eq("narration")
-      expect(rp.parsed_notes[1]["speaker"]).to eq("hal")
+      expect(rp.parsed_notes[1]["speaker"]).to eq("reader")
       expect(rp.parsed_notes[2]["speaker"]).to eq("companion")
     end
 
     it "appends to existing entries" do
-      rp = create(:reading_progress, reading_notes: [{ "type" => "dialogue", "speaker" => "hal", "text" => "既存" }].to_json)
+      rp = create(:reading_progress, reading_notes: [{ "type" => "dialogue", "speaker" => "reader", "text" => "既存" }].to_json)
       rp.append_reading_log([{ "type" => "dialogue", "speaker" => "companion", "text" => "追加" }])
       expect(rp.parsed_notes.size).to eq(2)
     end
@@ -98,10 +98,16 @@ RSpec.describe ReadingProgress, type: :model do
   end
 
   describe "#combined_notes_text" do
+    it "treats any speaker other than the companion as the reader (older notes used another key)" do
+      notes = [{ "type" => "dialogue", "speaker" => "old_reader_key", "text" => "昔の感想" }]
+      rp = create(:reading_progress, reading_notes: notes.to_json)
+      expect(rp.combined_notes_text).to eq("#{rp.character.name}: 昔の感想")
+    end
+
     it "formats new structured entries" do
       notes = [
         { "type" => "narration", "text" => "メロスは激怒した。" },
-        { "type" => "dialogue", "speaker" => "hal", "text" => "すごい出だし！" },
+        { "type" => "dialogue", "speaker" => "reader", "text" => "すごい出だし！" },
         { "type" => "dialogue", "speaker" => "companion", "text" => "どこが気になった？" },
       ]
       rp = create(:reading_progress, reading_notes: notes.to_json)

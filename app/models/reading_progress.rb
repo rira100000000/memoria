@@ -38,7 +38,7 @@ class ReadingProgress < ApplicationRecord
   def append_note(note_text, chunk_range: nil)
     append_reading_log([{
       "type" => "dialogue",
-      "speaker" => "hal",
+      "speaker" => "reader",
       "text" => note_text,
       "chunk_range" => chunk_range,
     }])
@@ -64,7 +64,7 @@ class ReadingProgress < ApplicationRecord
       if entry["type"] == "narration"
         "【原文】#{entry["text"]&.slice(0, 200)}…"
       elsif entry["type"] == "dialogue"
-        speaker = entry["speaker"] == "hal" ? character.name : Reading::ReadingCompanion::NAME
+        speaker = entry["speaker"] == "companion" ? Reading::ReadingCompanion::NAME : character.name
         "#{speaker}: #{entry["text"]}"
       else
         # 旧形式との互換

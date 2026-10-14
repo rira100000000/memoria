@@ -83,7 +83,7 @@
        "chat": {"openai": {
          "baseUrl":"https://memoria.example.com/v1",
          "apiKey":"sk-device-xxxxxxx",
-         "model":"memoria/hal-default",
+         "model":"memoria/elysia",
          "stream": true,
          "maxHistory": 10
        }},

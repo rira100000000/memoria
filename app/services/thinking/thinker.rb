@@ -216,7 +216,7 @@ module Thinking
           progress = character.current_reading
           if progress
             progress.append_reading_log([
-              { "type" => "dialogue", "speaker" => "hal", "text" => fc[:args]["message"] },
+              { "type" => "dialogue", "speaker" => "reader", "text" => fc[:args]["message"] },
               { "type" => "dialogue", "speaker" => "companion", "text" => tool_result[:response] },
             ])
           end

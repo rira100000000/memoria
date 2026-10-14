@@ -21,10 +21,10 @@ namespace :reading do
       when "narration"
         puts "📖 #{entry["text"]}"
       when "dialogue"
-        if entry["speaker"] == "hal"
-          puts "🌸 #{character.name}: #{entry["text"]}"
-        else
+        if entry["speaker"] == "companion"
           puts "🔮 #{companion_name}: #{entry["text"]}"
+        else
+          puts "🌸 #{character.name}: #{entry["text"]}"
         end
       end
       puts ""

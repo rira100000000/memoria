@@ -24,7 +24,7 @@ bin/ms-setup DEVICE_NAME=aituber-kit-pc
 控える：
 - `ADMIN KEY`（msak_...）
 - `DEVICE KEY`（msdk_...）
-- 発話させたいキャラの `vault_dir_name`（例：`hal`、`elysia`）
+- 発話させたいキャラの `vault_dir_name`（例：`elysia`）
 
 ### 2. aituber-kit 側
 
@@ -42,7 +42,7 @@ npm run dev
 | 項目 | 値 |
 |---|---|
 | LLMサービス | **OpenAI** |
-| モデル | `memoria/<vault_dir_name>` 例：`memoria/hal` |
+| モデル | `memoria/<vault_dir_name>` 例：`memoria/elysia` |
 | API Key | `<DEVICE_KEY>` |
 | Custom URL | `http://localhost:3000/api/v1` |
 | ストリーミング | **有効** |
@@ -61,7 +61,7 @@ npm run dev
 export MS_BASE_URL=http://localhost:3001
 export MS_ADMIN_KEY=msak_...
 export MS_DEVICE_KEY=msdk_...
-export MS_CHARACTER_REF=hal
+export MS_CHARACTER_REF=elysia
 bin/ms-smoke
 ```
 
@@ -134,7 +134,7 @@ PC → スマホ移動：
 curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"to_device":"phone-2","reason":"user_requested"}' \
-  http://localhost:3001/api/v1/characters/hal/transfer
+  http://localhost:3001/api/v1/characters/elysia/transfer
 ```
 
 PC 側の SSE に `presence.departed` が届く。スマホ側に `presence.arrived` が届く（aituber-kit が SSE 購読部を実装している場合）。

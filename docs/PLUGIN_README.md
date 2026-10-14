@@ -33,7 +33,7 @@ class WeatherPlugin < MemoriaServer::Plugin
 
   # このキャラクターで有効か（省略時は常に有効）
   def enabled_for?(character)
-    character.name == "ハル"
+    character.name == "Elysia"
   end
 
   # 場面ごとに出すツール。引数は JSON Schema（type は小文字）で書く
