@@ -11,7 +11,10 @@ RSpec.describe ClaudeCli::Runner do
     path = File.join(dir, "fake_claude")
     File.write(path, <<~RUBY)
       #!/usr/bin/env ruby
+      # encoding: utf-8
       require "json"
+      $stdin.set_encoding("UTF-8")
+      $stdout.set_encoding("UTF-8")
       args = ARGV.dup
       prompt = $stdin.read
       File.write(#{File.join(dir, "args.json").inspect}, JSON.generate(args: args, prompt: prompt, cwd: Dir.pwd))
@@ -82,6 +85,44 @@ RSpec.describe ClaudeCli::Runner do
 
     expect(result.text).to eq("晴れだよ")
     expect(result.tool_events).to eq([{ name: "web_search", args: { "query" => "天気" }, result: { answer: "晴れ" } }])
+  end
+
+  it "can use all Claude Code tools in a given directory with a settings file" do
+    work = File.join(dir, "vault")
+    Dir.mkdir(work)
+    described_class.new(command: fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")'),
+      builtin_tools: "default", work_dir: work, settings: "/path/to/settings.json")
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet")
+
+    args = recorded["args"]
+    expect(recorded["cwd"]).to eq(work)
+    expect(args[args.index("--tools") + 1]).to eq("default")
+    expect(args[args.index("--allowedTools") + 1..]).to start_with("mcp__memoria").and(include("--settings"))
+    expect(args[args.index("--allowedTools") + 2]).to eq("--settings")
+    expect(args[args.index("--settings") + 1]).to eq("/path/to/settings.json")
+  end
+
+  it "keeps light work out of the given directory" do
+    work = File.join(dir, "vault")
+    Dir.mkdir(work)
+    described_class.new(command: fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")'),
+      work_dir: work, settings: "/path/to/settings.json")
+      .run(system_prompt: "S", prompt: "P", model: "haiku")
+
+    expect(recorded["cwd"]).not_to eq(work)
+    expect(recorded["args"]).not_to include("--settings")
+  end
+
+  it "records other built-in tool uses with a log line" do
+    result = run_with(<<~RUBY)
+      puts JSON.generate(type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls", description: "一覧" } }] })
+      puts JSON.generate(type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "a.md" }] })
+      puts JSON.generate(type: "assistant", message: { content: [{ type: "tool_use", id: "t2", name: "mcp__memoria__semantic_search", input: { query: "x" } }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")
+    RUBY
+
+    expect(result.tool_events).to eq([{ name: "Bash", args: { "command" => "ls", "description" => "一覧" },
+                                        result: { answer: "a.md", log: ["[Bash] ls 一覧"] } }])
   end
 
   it "runs without tools when no character is given" do

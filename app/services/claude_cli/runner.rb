@@ -6,8 +6,10 @@ module ClaudeCli
   #
   # キャラクターを指定したときは、そのツールを MCP サーバ（bin/memoria_mcp）として渡す。
   # MCP サーバは実行したツールの記録を一時ファイル（JSON Lines）に書き、ここで読み戻して返す。
-  # Claude Code の組み込みツールは、読むだけのもの（既定: WebSearch・WebFetch）をキャラクターのツールと
-  # 一緒に使わせる。Bash・Edit など書き換えや実行をするもの、設定ファイル、CLAUDE.md は使わない。
+  # Claude Code の組み込みツールは、既定では読むだけのもの（WebSearch・WebFetch）をキャラクターのツールと
+  # 一緒に使わせる。CLAUDE_CLI_BUILTIN_TOOLS=default にすると全部使わせる（権限は CLAUDE_CLI_SETTINGS の
+  # 設定ファイルで決める）。作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
+  # 利用者の Claude Code の設定ファイル（~/.claude など）は読まない。
   class Runner
     Result = Struct.new(:text, :tool_events, :model, keyword_init: true)
 
@@ -15,16 +17,22 @@ module ClaudeCli
     DEFAULT_MAX_TURNS = 20
     # キャラクターのツールと一緒に使わせる Claude Code の組み込みツール（読むだけのもの）
     DEFAULT_BUILTIN_TOOLS = "WebSearch,WebFetch"
-    # 組み込みツールの呼び出しを、Gemini のときと同じ名前で記録する
+    # 組み込みツールの呼び出しを記録するときの名前（Web検索は Gemini のときと同じ名前にそろえる）
     BUILTIN_EVENT_NAMES = { "WebSearch" => "web_search", "WebFetch" => "web_fetch" }.freeze
+    # 組み込みツールの入力のうち、記録に残すもの
+    BUILTIN_EVENT_ARGS = %w[query url command file_path path pattern description].freeze
     BUILTIN_RESULT_CHARS = 1000
 
     def initialize(command: ENV.fetch("CLAUDE_CLI_COMMAND", "claude"),
                    timeout: ENV.fetch("CLAUDE_CLI_TIMEOUT", DEFAULT_TIMEOUT).to_i,
                    max_turns: ENV.fetch("CLAUDE_CLI_MAX_TURNS", DEFAULT_MAX_TURNS).to_i,
                    builtin_tools: ENV.fetch("CLAUDE_CLI_BUILTIN_TOOLS", DEFAULT_BUILTIN_TOOLS),
+                   work_dir: ENV["CLAUDE_CLI_WORKDIR"].presence,
+                   settings: ENV["CLAUDE_CLI_SETTINGS"].presence,
                    mcp_command: Rails.root.join("bin/memoria_mcp").to_s)
       @command = command
+      @work_dir = work_dir
+      @settings = settings
       @builtin_tools = builtin_tools.to_s.split(",").map(&:strip).reject(&:empty?)
       @timeout = timeout
       @max_turns = max_turns
@@ -47,6 +55,8 @@ module ClaudeCli
           File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path)))
         end
 
+        # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
+        work_dir = @work_dir if character && @work_dir
         stdout, stderr, status = execute(command_line(system_prompt, model, config_path), prompt, work_dir)
         messages = parse_stream(stdout)
         text = final_text(messages, stdout, stderr, status)
@@ -85,7 +95,12 @@ module ClaudeCli
         "--no-session-persistence",
         "--max-turns", @max_turns.to_s
       ]
-      cmd += ["--mcp-config", config_path, "--allowedTools", "mcp__memoria", *builtin] if config_path
+      if config_path
+        # "default"（全部）のときの許可は設定ファイルの権限に任せ、個別に名前を挙げたものだけ許可に足す
+        allowed = builtin == ["default"] ? [] : builtin
+        cmd += ["--mcp-config", config_path, "--allowedTools", "mcp__memoria", *allowed]
+        cmd += ["--settings", @settings] if @settings
+      end
       cmd
     end
 
@@ -93,6 +108,8 @@ module ClaudeCli
     # （claude が起動した MCP サーバも残さない）
     def execute(cmd, prompt, work_dir)
       Open3.popen3(*cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
+        # ロケールに関係なく UTF-8 として読み書きする（LANG のない環境では ASCII として扱われ、日本語で壊れる）
+        [stdin, stdout, stderr].each { |io| io.set_encoding(Encoding::UTF_8) }
         out_reader = Thread.new { stdout.read }
         err_reader = Thread.new { stderr.read }
         stdin.write(prompt)
@@ -147,7 +164,7 @@ module ClaudeCli
         Array(m.dig("message", "content")).each do |c|
           next unless c.is_a?(Hash)
 
-          if m["type"] == "assistant" && c["type"] == "tool_use" && BUILTIN_EVENT_NAMES.key?(c["name"])
+          if m["type"] == "assistant" && c["type"] == "tool_use" && !c["name"].to_s.start_with?("mcp__")
             calls[c["id"]] = c
           elsif m["type"] == "user" && c["type"] == "tool_result"
             results[c["tool_use_id"]] = tool_result_text(c["content"])
@@ -156,11 +173,12 @@ module ClaudeCli
       end
 
       calls.map do |id, call|
-        {
-          name: BUILTIN_EVENT_NAMES[call["name"]],
-          args: (call["input"] || {}).slice("query", "url"),
-          result: { answer: results[id].to_s.truncate(BUILTIN_RESULT_CHARS) },
-        }
+        name = BUILTIN_EVENT_NAMES.fetch(call["name"], call["name"])
+        args = (call["input"] || {}).slice(*BUILTIN_EVENT_ARGS)
+        result = { answer: results[id].to_s.truncate(BUILTIN_RESULT_CHARS) }
+        # Web検索以外（ファイルの編集やコマンドの実行など）は、会話ログに何をしたかを残す
+        result[:log] = ["[#{call["name"]}] #{args.values.join(" ").truncate(300)}"] unless BUILTIN_EVENT_NAMES.key?(call["name"])
+        { name: name, args: args, result: result }
       end
     end
 
@@ -173,7 +191,7 @@ module ClaudeCli
     def read_events(path)
       return [] unless File.exist?(path)
 
-      File.readlines(path).filter_map do |line|
+      File.readlines(path, encoding: "utf-8").filter_map do |line|
         event = JSON.parse(line)
         {
           name: event["name"].to_s,

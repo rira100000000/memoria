@@ -9,6 +9,10 @@ token = ENV.fetch("DISCORD_BOT_TOKEN")
 
 bot = Discordrb::Bot.new(token: token, intents: [:server_messages])
 
+# 応答する相手のDiscordユーザーID（","区切り）。未設定ならチャンネルに書ける全員に応答する。
+# キャラクターに強い権限（ファイルの編集やコマンドの実行）を渡すときは必ず設定する
+allowed_user_ids = ENV["DISCORD_ALLOWED_USER_IDS"].to_s.split(",").map(&:strip).reject(&:empty?)
+
 bot.ready do |event|
   puts "[Discord Bot] Online! (#{event.bot.profile.username})"
 end
@@ -16,6 +20,7 @@ end
 bot.message do |event|
   # Bot自身のメッセージは無視
   next if event.author.bot_account?
+  next if allowed_user_ids.any? && !allowed_user_ids.include?(event.author.id.to_s)
 
   channel_id = event.channel.id.to_s
   character = ChannelBinding.find_character_for_discord(channel_id)

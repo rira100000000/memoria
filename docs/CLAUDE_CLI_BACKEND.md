@@ -25,7 +25,9 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りやペットの返答などの軽�
 # CLAUDE_CLI_COMMAND=claude     # claude コマンドのパス
 # CLAUDE_CLI_TIMEOUT=600        # 1回の実行の上限（秒）
 # CLAUDE_CLI_MAX_TURNS=20       # 1回の実行でのツール呼び出しの往復の上限
-# CLAUDE_CLI_BUILTIN_TOOLS=WebSearch,WebFetch  # 会話と思考ループで使わせる Claude Code の組み込みツール
+# CLAUDE_CLI_BUILTIN_TOOLS=WebSearch,WebFetch  # 会話と思考ループで使わせる Claude Code の組み込みツール（default で全部）
+# CLAUDE_CLI_WORKDIR=/path/to/dir   # 会話と思考ループの作業ディレクトリ（既定: 空の一時ディレクトリ）
+# CLAUDE_CLI_SETTINGS=/path/to/settings.json  # claude に渡す設定ファイル（権限の allow / deny など）
 ```
 
 `claude` はインストール済みで、ログイン済み（または API キーを設定済み）である必要があります。memoria は認証情報を読みません。
@@ -34,10 +36,20 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りやペットの返答などの軽�
 
 1. memoria はシステムプロンプト（`PromptBuilder` の出力）とプロンプトを渡して `claude -p` を起動します。会話のときは、これまでの会話を書き起こしてプロンプトに入れます
 2. ツールは MCP サーバ `bin/memoria_mcp`（stdio）として渡します。Gemini のときと同じツール（記憶検索、予定、プラグインのツールなど）が同じ処理で実行されます
-3. Claude Code の組み込みツールは、読むだけの WebSearch・WebFetch だけを使います。Bash・Edit などの書き換えや実行をするツール、設定ファイル、CLAUDE.md は使いません（`--tools`、`--setting-sources ""`、空の作業ディレクトリ）
-4. MCP サーバは実行したツールを一時ファイルに記録し、memoria はそれを会話ログ（FL）に反映します。Web検索の呼び出しは claude の出力（stream-json）から拾います
+3. Claude Code の組み込みツールは、既定では読むだけの WebSearch・WebFetch だけを使います。利用者の Claude Code の設定ファイル（`~/.claude` など）は読みません（`--setting-sources ""`）
+4. MCP サーバは実行したツールを一時ファイルに記録し、memoria はそれを会話ログ（FL）に反映します。組み込みツール（Web検索、ファイルの編集、コマンドの実行など）の呼び出しは claude の出力（stream-json）から拾います
 
 軽い作業は、ツールなしで `claude -p` を1回呼びます。利用枠の中で動くので、API の利用額（`ApiUsageLog`）には記録しません。
+
+### Claude Code のツールを全部渡す
+
+`CLAUDE_CLI_BUILTIN_TOOLS=default` にすると、キャラクターは Claude Code と同じツール（Read・Edit・Write・Bash など）を使えます。`CLAUDE_CLI_WORKDIR` で作業ディレクトリを、`CLAUDE_CLI_SETTINGS` の設定ファイルで権限（`permissions.defaultMode`、`allow`、`deny`）を決めます。
+
+キャラクターは Discord の書き込み、Web の内容、思考ループをきっかけに動きます。コマンドの実行を許すときは、次を必ず行ってください。
+
+- `DISCORD_ALLOWED_USER_IDS` で、Discord bot が応答する相手を自分だけに絞る
+- 取り返しのつかない操作（履歴の書き換え、外部への送信など）を設定ファイルの `deny` で拒否する
+- 作業ディレクトリの中身を、キャラクターが消せない場所（リモートなど）にも残しておく
 
 ### 強いモデルへの切り替え
 

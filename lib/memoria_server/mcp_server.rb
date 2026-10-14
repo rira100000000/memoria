@@ -17,6 +17,9 @@ module MemoriaServer
     end
 
     def run
+      # ロケールに関係なく UTF-8 として読み書きする（claude が起動するときに LANG が渡らないことがある）
+      @input.set_encoding(Encoding::UTF_8) if @input.respond_to?(:set_encoding)
+      @output.set_encoding(Encoding::UTF_8) if @output.respond_to?(:set_encoding)
       @input.each_line do |line|
         next if line.strip.empty?
 
@@ -80,7 +83,7 @@ module MemoriaServer
     def record_event(name, args, tool_result)
       return unless @events_path
 
-      File.open(@events_path, "a") { |f| f.puts(JSON.generate(name: name, args: args, result: tool_result)) }
+      File.open(@events_path, "a", encoding: "utf-8") { |f| f.puts(JSON.generate(name: name, args: args, result: tool_result)) }
     end
 
     def result(id, value)
