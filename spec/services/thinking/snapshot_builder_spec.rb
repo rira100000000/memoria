@@ -24,6 +24,25 @@ RSpec.describe Thinking::SnapshotBuilder do
     expect(snapshot).to include("テスト")
   end
 
+  it "includes the latest messages of a conversation that is still going on" do
+    messages = (1..12).map { |i| { "role" => i.odd? ? "user" : "model", "content" => "発言#{i}" } }
+    messages[-1]["content"] = "長い" * 200
+    create(:chat_session_record, character: character, messages: messages, last_message_at: Time.current)
+
+    snapshot = described_class.build(core, character, health)
+
+    expect(snapshot).to include("いま続いているマスターとの会話（直近10件、古い順）:")
+    expect(snapshot).to include("マスター: 発言3", "#{character.name}: 発言4")
+    expect(snapshot).not_to include("発言2")
+    expect(snapshot).to include("#{character.name}: #{"長い" * 149}長…")
+  end
+
+  it "leaves out closed conversations" do
+    create(:chat_session_record, character: character, status: "closed", messages: [{ "role" => "user", "content" => "前の会話" }])
+
+    expect(described_class.build(core, character, health)).not_to include("前の会話")
+  end
+
   it "includes continuation when present" do
     allow(core).to receive(:pending_continuation).and_return({
       topic: "作業の続き", items: ["確認する"]

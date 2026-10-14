@@ -21,6 +21,18 @@ RSpec.describe MemoriaCore::Frontmatter do
       expect(body).to include("Body content here")
     end
 
+    it "keeps date-times as written so that writing them back does not shift them" do
+      content = "---\ndate: 2026-10-14 18:30:08\nupdated: 2026-10-15 03:30:08.000000000 +09:00\nday: 2026-10-14\n---\nbody"
+
+      fm, body = described_class.parse(content)
+      again, = described_class.parse(described_class.build(fm, body))
+
+      expect(fm["date"]).to eq("2026-10-14 18:30:08")
+      expect(fm["updated"]).to eq("2026-10-15 03:30:08.000000000 +09:00")
+      expect(fm["day"]).to eq(Date.new(2026, 10, 14))
+      expect(again).to eq(fm)
+    end
+
     it "returns nil frontmatter for content without frontmatter" do
       fm, body = described_class.parse("Just plain text")
 
