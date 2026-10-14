@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe ChatSession, "with the claude -p backend" do
   let(:vault_root) { Dir.mktmpdir }
-  let(:character) { create(:character, name: "ハル") }
+  let(:character) { create(:character, name: "アオイ") }
   let(:record) { create(:chat_session_record, character: character) }
   let(:llm_client) { instance_double(LlmClient) }
   let(:session) { described_class.new(character, record: record, llm_client: llm_client, platform: :discord) }
@@ -39,17 +39,17 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(record.reload.messages.last).to eq("role" => "model", "content" => "こんにちは")
     expect(runner).to have_received(:run).with(hash_including(
       scene: :chat, platform: :discord, model: "sonnet", character: character,
-      prompt: a_string_including("User: 前の話", "ハル: 前の返事", "Userの新しいメッセージ:\nやあ")
+      prompt: a_string_including("User: 前の話", "アオイ: 前の返事", "Userの新しいメッセージ:\nやあ")
     ))
   end
 
   it "writes tool logs to the full log" do
-    allow(runner).to receive(:run).and_return(claude_result("ok", [{ name: "talk_to_pet", args: {}, result: { log: ["ルル: ぴよ"] } }]))
+    allow(runner).to receive(:run).and_return(claude_result("ok", [{ name: "talk_to_pet", args: {}, result: { log: ["ピコ: ぴよ"] } }]))
     allow(session.chat_logger).to receive(:log_ai_message).and_call_original
 
     session.send_message("やあ")
 
-    expect(session.chat_logger).to have_received(:log_ai_message).with("ルル: ぴよ")
+    expect(session.chat_logger).to have_received(:log_ai_message).with("ピコ: ぴよ")
   end
 
   it "redoes the answer with the deep model when the character switched during the run" do

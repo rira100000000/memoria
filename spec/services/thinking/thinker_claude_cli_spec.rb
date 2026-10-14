@@ -2,11 +2,11 @@ require "rails_helper"
 
 RSpec.describe Thinking::Thinker, "with the claude -p backend" do
   let(:vault_root) { Dir.mktmpdir }
-  let(:character) { create(:character, name: "ハル", pet_config: { "name" => "ルル", "appearance" => "青い鳥" }) }
+  let(:character) { create(:character, name: "アオイ", pet_config: { "name" => "ピコ", "appearance" => "青い鳥" }) }
   let(:core) { MemoriaCore::Core.new(character.vault_path) }
   let(:llm_client) { instance_double(LlmClient) }
   let(:runner) { instance_double(ClaudeCli::Runner) }
-  let(:final_text) { "考えた。\n```json\n{\"summary\": \"ルルと話した\", \"share_message\": \"おはよう\"}\n```" }
+  let(:final_text) { "考えた。\n```json\n{\"summary\": \"ピコと話した\", \"share_message\": \"おはよう\"}\n```" }
 
   around do |example|
     original = ENV.to_h.slice("VAULT_ROOT", "MEMORIA_AGENT_BACKEND")
@@ -34,7 +34,7 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
 
     result = think
 
-    expect(result.summary).to eq("ルルと話した")
+    expect(result.summary).to eq("ピコと話した")
     expect(result.share_message).to eq("おはよう")
     expect(result.participants).to eq([:self, :pet])
     expect(result.all_messages.map { |m| m[:content] }).to eq(["おはよう", "ぴよ！", final_text])
