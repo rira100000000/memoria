@@ -1,8 +1,9 @@
 require "spec_helper"
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
-# 手元の .env で claude -p バックエンドを有効にしていても、テストは既定（Gemini）で動かす
+# 手元の .env で claude -p バックエンドを設定していても、テストは既定のまま動かす
 ENV.delete("MEMORIA_AGENT_BACKEND")
+ENV.keys.grep(/\ACLAUDE_CLI_/).each { |key| ENV.delete(key) }
 abort("The Rails environment is running in production mode!") if Rails.env.production?
 require "rspec/rails"
 require "webmock/rspec"

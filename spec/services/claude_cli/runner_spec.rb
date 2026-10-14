@@ -115,6 +115,7 @@ RSpec.describe ClaudeCli::Runner do
 
   it "records other built-in tool uses with a log line" do
     result = run_with(<<~RUBY)
+      puts JSON.generate(type: "system", subtype: "notice", message: "文字列のメッセージ")
       puts JSON.generate(type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls", description: "一覧" } }] })
       puts JSON.generate(type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "a.md" }] })
       puts JSON.generate(type: "assistant", message: { content: [{ type: "tool_use", id: "t2", name: "mcp__memoria__semantic_search", input: { query: "x" } }] })

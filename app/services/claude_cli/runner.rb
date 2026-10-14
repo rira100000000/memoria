@@ -161,7 +161,9 @@ module ClaudeCli
       calls = {}
       results = {}
       messages.each do |m|
-        Array(m.dig("message", "content")).each do |c|
+        # message が文字列の行（システムの通知など）もある
+        content = m["message"].is_a?(Hash) ? m["message"]["content"] : nil
+        Array(content).each do |c|
           next unless c.is_a?(Hash)
 
           if m["type"] == "assistant" && c["type"] == "tool_use" && !c["name"].to_s.start_with?("mcp__")
