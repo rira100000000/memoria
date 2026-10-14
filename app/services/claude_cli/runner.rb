@@ -4,9 +4,9 @@ require "tmpdir"
 module ClaudeCli
   # claude -p を1回実行する。
   #
-  # ツールは MCP サーバ（bin/memoria_mcp）として渡す。MCP サーバは実行したツールの記録を
-  # 一時ファイル（JSON Lines）に書き、ここで読み戻して返す。Claude Code の組み込みツール
-  # （Bash・Edit など）、設定ファイル、CLAUDE.md は使わない。
+  # キャラクターを指定したときは、そのツールを MCP サーバ（bin/memoria_mcp）として渡す。
+  # MCP サーバは実行したツールの記録を一時ファイル（JSON Lines）に書き、ここで読み戻して返す。
+  # Claude Code の組み込みツール（Bash・Edit など）、設定ファイル、CLAUDE.md は使わない。
   class Runner
     Result = Struct.new(:text, :tool_events, :model, keyword_init: true)
 
@@ -23,17 +23,21 @@ module ClaudeCli
       @mcp_command = mcp_command
     end
 
+    # @param character [Character, nil] 指定するとそのキャラクターのツールを MCP で渡す。nil ならツールなし
     # @param scene [Symbol] :chat / :thinking（MCP サーバが出すツールが変わる）
-    # @param trigger_type [String] ツール内の Gemini 呼び出しを ApiUsageLog に記録するときの区分
+    # @param trigger_type [String] ツール内の Gemini 呼び出し（埋め込みなど）を ApiUsageLog に記録するときの区分
     # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]
-    def run(system_prompt:, prompt:, character:, scene:, model:, trigger_type:, platform: nil)
+    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
-        config_path = File.join(dir, "mcp.json")
         work_dir = File.join(dir, "work")
         Dir.mkdir(work_dir)
 
-        File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path)))
+        config_path = nil
+        if character
+          config_path = File.join(dir, "mcp.json")
+          File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path)))
+        end
 
         stdout, stderr, status = execute(command_line(system_prompt, model, config_path), prompt, work_dir)
         text = parse_output(stdout, stderr, status)
@@ -45,7 +49,8 @@ module ClaudeCli
     private
 
     def mcp_config(character, scene, platform, trigger_type, events_path)
-      args = ["--character", character.id.to_s, "--scene", scene.to_s, "--trigger", trigger_type]
+      args = ["--character", character.id.to_s, "--scene", scene.to_s]
+      args += ["--trigger", trigger_type] if trigger_type
       args += ["--platform", platform.to_s] if platform
       {
         mcpServers: {
@@ -59,18 +64,19 @@ module ClaudeCli
     end
 
     def command_line(system_prompt, model, config_path)
-      [
+      cmd = [
         @command, "-p",
         "--output-format", "json",
         "--model", model,
         "--system-prompt", system_prompt,
         "--tools", "",
-        "--strict-mcp-config", "--mcp-config", config_path,
-        "--allowedTools", "mcp__memoria",
+        "--strict-mcp-config",
         "--setting-sources", "",
         "--no-session-persistence",
         "--max-turns", @max_turns.to_s
       ]
+      cmd += ["--mcp-config", config_path, "--allowedTools", "mcp__memoria"] if config_path
+      cmd
     end
 
     # プロンプトは長くなるので標準入力で渡す。時間切れのときはプロセスグループごと止める

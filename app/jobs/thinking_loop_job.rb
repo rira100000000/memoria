@@ -32,7 +32,13 @@ class ThinkingLoopJob < ApplicationJob
         return
       end
 
-      think(character)
+      begin
+        think(character)
+      rescue ClaudeCli::Error => e
+        # 利用枠切れなどはやり直しても同じなので、知らせて終える
+        Rails.logger.warn("[ThinkingLoopJob] claude -p failed for Character##{character_id}: #{e.message}")
+        ClaudeCli.notify_failure(character, e, what: "思考ループを実行")
+      end
     end
   rescue => e
     Rails.logger.error("[ThinkingLoopJob] Error: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")

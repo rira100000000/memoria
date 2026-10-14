@@ -84,14 +84,15 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(names.call).not_to include("use_deep_model")
   end
 
-  it "falls back to Gemini and says so when claude -p fails" do
+  it "says it could not answer when claude -p fails, without falling back to Gemini" do
     allow(runner).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
-    allow(llm_client).to receive(:chat).and_return({ text: "Geminiの返事", function_calls: [], usage: {} })
+    allow(llm_client).to receive(:chat)
 
     result = session.send_message("やあ")
 
-    expect(result[:response]).to eq("Geminiの返事\n\n⚠️ memoria: claude -p が使えなかったので Gemini で動きました（usage limit reached）")
-    expect(record.reload.messages.last["content"]).to eq("Geminiの返事")
+    expect(result[:response]).to eq("⚠️ memoria: claude -p が使えなかったので、返答できませんでした（usage limit reached）")
+    expect(llm_client).not_to have_received(:chat)
+    expect(record.reload.messages.map { |m| m["role"] }).to eq(["user"])
   end
 
   it "uses Gemini when the app layer injected its own tools" do

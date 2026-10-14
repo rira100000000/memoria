@@ -25,6 +25,49 @@ RSpec.describe LlmClient do
   end
 
   describe "#generate" do
+    context "with the claude -p backend" do
+      let(:runner) { instance_double(ClaudeCli::Runner) }
+      let(:tracker) { double("tracker", call: nil) }
+
+      around do |example|
+        original = ENV["MEMORIA_AGENT_BACKEND"]
+        ENV["MEMORIA_AGENT_BACKEND"] = "claude_cli"
+        example.run
+      ensure
+        ENV["MEMORIA_AGENT_BACKEND"] = original
+      end
+
+      before do
+        allow(ClaudeCli::Runner).to receive(:new).and_return(runner)
+        allow(runner).to receive(:run).and_return(ClaudeCli::Runner::Result.new(text: "要約", tool_events: [], model: "haiku"))
+        allow(mock_gemini_client).to receive(:chat)
+      end
+
+      it "generates with the light claude model instead of Gemini" do
+        result = LlmClient.new(api_key: "test-key", usage_tracker: tracker).generate("まとめて", tier: :light, system_instruction: "SYS")
+
+        expect(result[:text]).to eq("要約")
+        expect(result[:function_calls]).to eq([])
+        expect(runner).to have_received(:run).with(system_prompt: "SYS", prompt: "まとめて", model: "haiku")
+        expect(mock_gemini_client).not_to have_received(:chat)
+        expect(tracker).not_to have_received(:call)
+      end
+
+      it "gives claude a neutral system prompt when none is given" do
+        LlmClient.new(api_key: "test-key").generate("まとめて")
+
+        expect(runner).to have_received(:run).with(hash_including(system_prompt: a_string_including("出力だけ")))
+      end
+
+      it "keeps Gemini for generation with tools" do
+        allow(mock_gemini_client).to receive(:chat).and_return(mock_response)
+
+        LlmClient.new(api_key: "test-key").generate("Hello", tools: [{ functionDeclarations: [] }])
+
+        expect(runner).not_to have_received(:run)
+      end
+    end
+
     it "returns text and usage from Gemini response" do
       allow(mock_gemini_client).to receive(:chat).and_return(mock_response)
 

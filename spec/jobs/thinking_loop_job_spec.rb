@@ -158,5 +158,15 @@ RSpec.describe ThinkingLoopJob, type: :job do
         expect(Thinking::Thinker).not_to have_received(:run)
       end
     end
+
+    it "tells the master once and does not retry when claude -p is unavailable in free thinking" do
+      ClaudeCli.reset_failure_notices!
+      allow(Thinking::Thinker).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
+
+      2.times { described_class.new.perform(character.id) }
+
+      expect(MessageDispatcher).to have_received(:dispatch).once
+        .with(character, "⚠️ memoria: claude -p が使えなかったので、思考ループを実行できませんでした（usage limit reached）")
+    end
   end
 end

@@ -22,8 +22,6 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
   before do
     core.vault.ensure_structure!
     allow(ClaudeCli::Runner).to receive(:new).and_return(runner)
-    allow(MessageDispatcher).to receive(:dispatch)
-    ClaudeCli.reset_fallback_notices!
   end
 
   def think
@@ -44,13 +42,11 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
       prompt: a_string_including("今の状況")))
   end
 
-  it "falls back to Gemini and notifies once per hour when claude -p fails" do
+  it "raises when claude -p fails, without falling back to Gemini" do
     allow(runner).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
-    allow(llm_client).to receive(:chat).and_return({ text: final_text, function_calls: [], usage: {} })
+    allow(llm_client).to receive(:chat)
 
-    2.times { expect(think.summary).to eq("ルルと話した") }
-
-    expect(MessageDispatcher).to have_received(:dispatch).once
-      .with(character, a_string_including("Gemini で動きました（usage limit reached）"))
+    expect { think }.to raise_error(ClaudeCli::Error)
+    expect(llm_client).not_to have_received(:chat)
   end
 end

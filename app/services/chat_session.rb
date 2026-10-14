@@ -74,18 +74,17 @@ class ChatSession
     # システムインストラクション構築
     system_instruction = build_system_instruction(context)
 
-    # claude -p バックエンド。使えなければ Gemini で返し、そのことを返答に添える
-    fallback_notice = nil
+    # claude -p バックエンド。使えなければ返答できなかったことを返す（会話の履歴には残さない）
     if use_claude_cli?
       begin
         ai_response = filter_response(send_via_claude(system_instruction))
-        @record.append_message("model", ai_response)
-        @chat_logger.log_ai_message(ai_response)
-        return { response: ai_response, usage: nil }
       rescue ClaudeCli::Error => e
-        Rails.logger.warn("[ChatSession] claude -p failed, falling back to Gemini: #{e.message}") if defined?(Rails)
-        fallback_notice = ClaudeCli.fallback_notice(e)
+        Rails.logger.warn("[ChatSession] claude -p failed: #{e.message}") if defined?(Rails)
+        return { response: ClaudeCli.failure_notice(e, what: "返答"), usage: nil }
       end
+      @record.append_message("model", ai_response)
+      @chat_logger.log_ai_message(ai_response)
+      return { response: ai_response, usage: nil }
     end
 
     # Gemini API 用メッセージ構築
@@ -128,7 +127,7 @@ class ChatSession
     @chat_logger.log_ai_message(ai_response)
 
     {
-      response: [ ai_response, fallback_notice ].compact.join("\n\n"),
+      response: ai_response,
       usage: result[:usage]
     }
   end

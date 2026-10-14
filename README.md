@@ -87,7 +87,7 @@ bundle exec rspec         # テスト
 - 読書機能（青空文庫の作品を読み、内容が記憶に蓄積される）
 - Discord bot、音声書き起こし・読み上げエンドポイント
 - プラグイン（キャラクターにツールと指示を足す拡張。[docs/PLUGIN_README.md](docs/PLUGIN_README.md)）
-- claude -p バックエンド（会話と思考ループを Claude Code のヘッドレス実行で動かす選択肢。[docs/CLAUDE_CLI_BACKEND.md](docs/CLAUDE_CLI_BACKEND.md)）
+- claude -p バックエンド（会話・思考ループと軽い作業を Claude Code のヘッドレス実行で動かす選択肢。[docs/CLAUDE_CLI_BACKEND.md](docs/CLAUDE_CLI_BACKEND.md)）
 
 ## 技術スタック
 

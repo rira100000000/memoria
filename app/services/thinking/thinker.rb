@@ -61,14 +61,10 @@ module Thinking
         prospective_memory: "",
       }, channel: "autonomous thinking")
 
+      # claude -p が使えないときは ClaudeCli::Error が上がる（Gemini で代わりに動くことはしない）
       if ClaudeCli.enabled?
-        begin
-          return run_with_claude(prompt: prompt, system_instruction: system_instruction,
-            character: character, llm_client: llm_client)
-        rescue ClaudeCli::Error => e
-          Rails.logger.warn("[Thinker] claude -p failed, falling back to Gemini: #{e.message}")
-          ClaudeCli.notify_fallback(character, e)
-        end
+        return run_with_claude(prompt: prompt, system_instruction: system_instruction,
+          character: character, llm_client: llm_client)
       end
 
       run_with_gemini(prompt: prompt, system_instruction: system_instruction,

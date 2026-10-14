@@ -15,7 +15,7 @@ RSpec.describe ClaudeCli::Runner do
       args = ARGV.dup
       prompt = $stdin.read
       File.write(#{File.join(dir, "args.json").inspect}, JSON.generate(args: args, prompt: prompt, cwd: Dir.pwd))
-      config = JSON.parse(File.read(args[args.index("--mcp-config") + 1]))
+      config = args.include?("--mcp-config") ? JSON.parse(File.read(args[args.index("--mcp-config") + 1])) : {}
       events = config.dig("mcpServers", "memoria", "env", "MEMORIA_MCP_EVENTS")
       #{body}
     RUBY
@@ -69,6 +69,16 @@ RSpec.describe ClaudeCli::Runner do
     server = JSON.parse(File.read(File.join(dir, "config.json"))).dig("mcpServers", "memoria")
     expect(server["command"]).to eq(Rails.root.join("bin/memoria_mcp").to_s)
     expect(server["args"]).to eq(["--character", character.id.to_s, "--scene", "thinking", "--trigger", "thinking_loop"])
+  end
+
+  it "runs without tools when no character is given" do
+    result = described_class.new(command: fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "要約")'))
+      .run(system_prompt: "S", prompt: "P", model: "haiku")
+
+    expect(result.text).to eq("要約")
+    expect(result.tool_events).to eq([])
+    expect(recorded["args"]).not_to include("--mcp-config", "--allowedTools")
+    expect(recorded["args"][recorded["args"].index("--model") + 1]).to eq("haiku")
   end
 
   it "raises when claude reports an error (e.g. the usage limit)" do

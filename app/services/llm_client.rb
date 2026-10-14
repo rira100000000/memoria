@@ -3,6 +3,7 @@ require "gemini"
 # Gemini API 呼び出しをラップするクライアント
 # ruby-gemini-api gem を使用
 # Function Calling 対応
+# claude -p バックエンド（ClaudeCli）のときは、ツールなしの generate だけ claude -p の軽いモデルで行う
 class LlmClient
   EMBEDDING_MODEL = "gemini-embedding-001"
 
@@ -30,6 +31,8 @@ class LlmClient
   # @param tools [Array<Hash>, nil] Function Calling用ツール定義
   # @return [Hash] { text:, function_calls:, usage: }
   def generate(prompt, tier: :main, system_instruction: nil, tools: nil)
+    return generate_with_claude(prompt, system_instruction) if ClaudeCli.enabled? && tools.nil?
+
     model = tier == :light ? @light_model : @main_model
     params = {
       contents: [ { role: "user", parts: [ { text: prompt } ] } ],
@@ -124,6 +127,19 @@ class LlmClient
   end
 
   private
+
+  CLAUDE_DEFAULT_SYSTEM_PROMPT = "指示に従い、求められた出力だけを返す。"
+
+  # claude -p バックエンドのとき、ツールを使わない生成（振り返り・タグ付け・ペットの返答など）は
+  # 軽いモデルの claude -p で行う。利用枠の中で動くので ApiUsageLog には記録しない
+  def generate_with_claude(prompt, system_instruction)
+    run = ClaudeCli::Runner.new.run(
+      system_prompt: system_instruction.presence || CLAUDE_DEFAULT_SYSTEM_PROMPT,
+      prompt: prompt,
+      model: ClaudeCli.light_model
+    )
+    { text: run.text, function_calls: [], raw_parts: [], usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }
+  end
 
   def apply_thinking_config!(params)
     return if @thinking_budget <= 0
