@@ -20,10 +20,12 @@ class Character < ApplicationRecord
   has_many :transfers, dependent: :destroy
 
   validates :name, presence: true
+  # 記憶の置き場所（vault_path）を決める値。同じユーザーの中で重なると記憶を共有してしまう
+  validates :vault_dir_name, presence: true, uniqueness: { scope: :user_id }
 
   scope :thinking_loop_active, -> { where(thinking_loop_enabled: true) }
 
-  before_create :set_vault_dir_name
+  before_validation :set_vault_dir_name, on: :create
 
   def vault_path
     File.join(user.vault_path, vault_dir_name)
@@ -79,6 +81,10 @@ class Character < ApplicationRecord
   private
 
   def set_vault_dir_name
-    self.vault_dir_name ||= name.gsub(/[^\w\s-]/, "").gsub(/\s+/, "_").downcase.presence || "char_#{SecureRandom.hex(4)}"
+    return if vault_dir_name.present? || name.blank?
+
+    base = name.gsub(/[^\w\s-]/, "").gsub(/\s+/, "_").downcase.presence || "char_#{SecureRandom.hex(4)}"
+    base = "#{base}_#{SecureRandom.hex(4)}" if user && user.characters.exists?(vault_dir_name: base)
+    self.vault_dir_name = base
   end
 end
