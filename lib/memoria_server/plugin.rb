@@ -154,14 +154,31 @@ module MemoriaServer
         }
       end
 
+      # Gemini 形式（type が大文字）のツール定義を JSON Schema（MCP 用）に戻す
+      def gemini_to_json_schema(declaration)
+        {
+          name: declaration[:name].to_s,
+          description: declaration[:description].to_s,
+          inputSchema: downcase_types(declaration[:parameters] || { type: "object", properties: {} }),
+        }
+      end
+
       def upcase_types(schema)
+        convert_types(schema, &:upcase)
+      end
+
+      def downcase_types(schema)
+        convert_types(schema, &:downcase)
+      end
+
+      def convert_types(schema, &conv)
         case schema
         when Hash
           schema.each_with_object({}) do |(k, v), h|
-            h[k.to_sym] = k.to_s == "type" && v.is_a?(String) ? v.upcase : upcase_types(v)
+            h[k.to_sym] = k.to_s == "type" && v.is_a?(String) ? conv.call(v) : convert_types(v, &conv)
           end
         when Array
-          schema.map { |v| upcase_types(v) }
+          schema.map { |v| convert_types(v, &conv) }
         else
           schema
         end

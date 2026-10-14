@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+# キャラクターのツールを MCP（stdio）で公開する。claude -p バックエンド（ClaudeCli::Runner）が起動する。
+#
+#   bin/memoria_mcp --character ID --scene thinking|chat [--platform discord] [--trigger thinking_loop]
+#
+# 実行したツールの記録は環境変数 MEMORIA_MCP_EVENTS のファイルに書き出す。
+
+require "optparse"
+
+options = {}
+OptionParser.new do |o|
+  o.on("--character ID", Integer) { |v| options[:character] = v }
+  o.on("--scene SCENE") { |v| options[:scene] = v }
+  o.on("--platform PLATFORM") { |v| options[:platform] = v }
+  o.on("--trigger TYPE") { |v| options[:trigger] = v }
+end.parse!
+
+abort "usage: bin/memoria_mcp --character ID --scene thinking|chat" unless options[:character] && options[:scene]
+
+# 標準出力は MCP のやり取り専用にする。Rails やプラグインが書く出力は標準エラーへ回す
+protocol_out = $stdout.dup
+$stdout.reopen($stderr)
+
+require_relative "../config/environment"
+
+character = Character.find(options[:character])
+provider = ClaudeCli::ToolProvider.build(
+  character: character,
+  scene: options[:scene],
+  platform: options[:platform],
+  trigger_type: options[:trigger]
+)
+
+MemoriaServer::McpServer.new(
+  provider: provider,
+  output: protocol_out,
+  events_path: ENV["MEMORIA_MCP_EVENTS"]
+).run

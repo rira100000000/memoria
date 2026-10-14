@@ -74,6 +74,20 @@ class ChatSession
     # システムインストラクション構築
     system_instruction = build_system_instruction(context)
 
+    # claude -p バックエンド。使えなければ Gemini で返し、そのことを返答に添える
+    fallback_notice = nil
+    if use_claude_cli?
+      begin
+        ai_response = filter_response(send_via_claude(system_instruction))
+        @record.append_message("model", ai_response)
+        @chat_logger.log_ai_message(ai_response)
+        return { response: ai_response, usage: nil }
+      rescue ClaudeCli::Error => e
+        Rails.logger.warn("[ChatSession] claude -p failed, falling back to Gemini: #{e.message}") if defined?(Rails)
+        fallback_notice = ClaudeCli.fallback_notice(e)
+      end
+    end
+
     # Gemini API 用メッセージ構築
     gemini_messages = @record.messages.map do |m|
       { role: m["role"] == "user" ? "user" : "model", parts: [ { text: m["content"] } ] }
@@ -114,7 +128,7 @@ class ChatSession
     @chat_logger.log_ai_message(ai_response)
 
     {
-      response: ai_response,
+      response: [ ai_response, fallback_notice ].compact.join("\n\n"),
       usage: result[:usage]
     }
   end
@@ -221,7 +235,73 @@ class ChatSession
     reflection_result
   end
 
+  # この会話で使えるツールの定義（Gemini の functionDeclarations 形式）。
+  # claude -p のときは MCP サーバ（bin/memoria_mcp）がこれを使う
+  def tool_definitions
+    build_tool_definitions
+  end
+
+  def call_tool(name, args)
+    execute_tool(name, args)
+  end
+
   private
+
+  DEEP_MODEL_TOOL = {
+    name: "use_deep_model",
+    description: "会話が、プログラミングや開発の相談、設計や技術的な壁打ち、込み入った作業の依頼になったときに呼ぶ。" \
+      "この返答から、より強いモデルで考え直して応答する。この会話が終わるまで強いモデルのまま続く。" \
+      "雑談や短いやりとりでは呼ばない",
+    parameters: { type: "OBJECT", properties: { reason: { type: "STRING", description: "切り替える理由（短く）" } } }
+  }.freeze
+
+  # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
+  def use_claude_cli?
+    ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
+  end
+
+  def send_via_claude(system_instruction)
+    deep = @record.deep_mode
+    run = run_claude(system_instruction, deep: deep)
+
+    # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
+    run = run_claude(system_instruction, deep: true) if !deep && @record.reload.deep_mode
+
+    run.text
+  end
+
+  def run_claude(system_instruction, deep:)
+    run = ClaudeCli::Runner.new.run(
+      system_prompt: system_instruction,
+      prompt: claude_prompt,
+      character: @character,
+      scene: :chat,
+      platform: @platform,
+      model: ClaudeCli.model(deep: deep),
+      trigger_type: @trigger_type
+    )
+    # ツールがFLに記録すべき会話を返した場合、記録する
+    run.tool_events.each do |event|
+      Array(event[:result][:log]).each { |entry| @chat_logger.log_ai_message(entry) }
+    end
+    run
+  end
+
+  # claude -p は1回ごとに独立して動くので、これまでの会話を書き起こしてプロンプトに入れる
+  def claude_prompt
+    *history, current = messages
+    lines = []
+    if history.any?
+      lines << "これまでの会話:"
+      history.each { |m| lines << "#{m[:role] == "user" ? "User" : llm_role_name}: #{m[:content]}" }
+      lines << ""
+    end
+    lines << "Userの新しいメッセージ:"
+    lines << current[:content].to_s
+    lines << ""
+    lines << "#{llm_role_name}として返答してください。返答の本文だけを書いてください。"
+    lines.join("\n")
+  end
 
   def build_usage_tracker
     character = @character
@@ -334,6 +414,9 @@ class ChatSession
     # プラグインのツール
     base_fns += MemoriaServer::Plugin.gemini_declarations(@character, scene: :chat, platform: @platform)
 
+    # claude -p のとき、強いモデルへの切り替え
+    base_fns << DEEP_MODEL_TOOL if ClaudeCli.deep_model_available? && !@record.deep_mode
+
     # アプリ層から追加されたツール定義をマージ
     if @extra_tools
       @extra_tools.each do |tool_def|
@@ -362,6 +445,9 @@ class ChatSession
     when "semantic_search"
       result = @context_retriever.retrieve(args["query"])
       { results: result[:llm_context_prompt] }
+    when "use_deep_model"
+      @record.update!(deep_mode: true)
+      { switched: true, model: ClaudeCli.model(deep: true) }
     else
       { error: "Unknown tool: #{name}" }
     end

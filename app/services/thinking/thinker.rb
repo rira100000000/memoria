@@ -48,12 +48,6 @@ module Thinking
     MAX_TOOL_ROUNDS = 5
 
     def self.run(snapshot:, character:, core:, health:, llm_client:)
-      messages = []       # FL用の人間が読めるログ
-      participants = [:self]
-      tools = build_tools(character)
-      reading_occurred = false
-      last_reading_context = nil  # { progress_id:, finished: }
-
       prompt = build_prompt(character) + "\n\n" + snapshot
       plugin_segments = MemoriaServer::Plugin.prompt_segments(character, scene: :thinking)
       prompt += "\n\n" + plugin_segments if plugin_segments.present?
@@ -66,6 +60,70 @@ module Thinking
         behavior_principles: load_behavior_principles(core),
         prospective_memory: "",
       }, channel: "autonomous thinking")
+
+      if ClaudeCli.enabled?
+        begin
+          return run_with_claude(prompt: prompt, system_instruction: system_instruction,
+            character: character, llm_client: llm_client)
+        rescue ClaudeCli::Error => e
+          Rails.logger.warn("[Thinker] claude -p failed, falling back to Gemini: #{e.message}")
+          ClaudeCli.notify_fallback(character, e)
+        end
+      end
+
+      run_with_gemini(prompt: prompt, system_instruction: system_instruction,
+        character: character, core: core, health: health, llm_client: llm_client)
+    end
+
+    # claude -p で考える。ツールは MCP サーバ（bin/memoria_mcp）が実行し、その記録を受け取って
+    # Gemini の場合と同じ形のログにする
+    def self.run_with_claude(prompt:, system_instruction:, character:, llm_client:)
+      run = ClaudeCli::Runner.new.run(
+        system_prompt: system_instruction,
+        prompt: prompt,
+        character: character,
+        scene: :thinking,
+        model: ClaudeCli.model,
+        trigger_type: "thinking_loop"
+      )
+
+      messages = []
+      participants = [:self]
+      last_reading_context = nil
+      reading_occurred = false
+
+      run.tool_events.each do |event|
+        fc = { name: event[:name], args: event[:args] }
+        participants << :pet if fc[:name] == "talk_to_pet"
+        participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
+        log_tool_interaction(messages, fc, event[:result], character)
+
+        if (context = reading_context_from(fc, event[:result]))
+          reading_occurred = true
+          last_reading_context = context
+        end
+      end
+
+      messages << { role: "model", content: run.text, participant: character.name } if run.text.present?
+
+      # 読んだチャンクの読書ノートは最後にまとめて残す（途中の感想との対応は取らない）
+      if last_reading_context
+        save_reading_note(
+          last_reading_context[:progress_id],
+          chunk_text: last_reading_context[:chunk_text],
+          llm_client: llm_client, character: character
+        )
+      end
+
+      ThinkingResult.parse(messages, participants: participants.uniq, reading_occurred: reading_occurred)
+    end
+
+    def self.run_with_gemini(prompt:, system_instruction:, character:, core:, health:, llm_client:)
+      messages = []       # FL用の人間が読めるログ
+      participants = [:self]
+      tools = tool_definitions(character)
+      reading_occurred = false
+      last_reading_context = nil  # { progress_id:, chunk_text: }
 
       # Gemini API用メッセージ
       gemini_messages = [{ role: "user", parts: [{ text: prompt }] }]
@@ -101,33 +159,17 @@ module Thinking
         # ツール実行
         has_non_reading_tool = false
         function_responses = result[:function_calls].map do |fc|
-          tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
+          tool_result = call_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
           participants << :pet if fc[:name] == "talk_to_pet"
           participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
           log_tool_interaction(messages, fc, tool_result, character)
 
           # 読書チャンク処理
-          if fc[:name] == "read_aozora" && tool_result.is_a?(Hash) && tool_result[:chunk].present?
+          if (context = reading_context_from(fc, tool_result))
             reading_occurred = true
-            last_reading_context = {
-              progress_id: tool_result[:reading_progress_id],
-              chunk_text: tool_result[:chunk],
-            }
-            recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
-            tool_result[:recalled_memories] = recalled if recalled.present?
+            last_reading_context = context
           elsif fc[:name] != "read_aozora"
             has_non_reading_tool = true
-          end
-
-          # 読書伴走者との対話をreading_notesに記録
-          if fc[:name] == "talk_to_reading_companion" && tool_result.is_a?(Hash) && tool_result[:response]
-            progress = character.current_reading
-            if progress
-              progress.append_reading_log([
-                { "type" => "dialogue", "speaker" => "hal", "text" => fc[:args]["message"] },
-                { "type" => "dialogue", "speaker" => "companion", "text" => tool_result[:response] },
-              ])
-            end
           end
 
           { name: fc[:name], response: tool_result }
@@ -158,7 +200,42 @@ module Thinking
     end
 
     class << self
+      # 思考ループで使えるツールの定義（Gemini の functionDeclarations 形式）。
+      # claude -p のときは MCP サーバがこれを JSON Schema に直して渡す
+      def tool_definitions(character)
+        build_tools(character)
+      end
+
+      # ツールを実行する。読書の前後処理（関連する記憶の想起、伴走者との対話の記録）もここで行う
+      def call_tool(fc, core:, llm_client:, health:, character:)
+        tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
+
+        if fc[:name] == "read_aozora" && tool_result[:chunk].present?
+          recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
+          tool_result[:recalled_memories] = recalled if recalled.present?
+        end
+
+        # 読書伴走者との対話をreading_notesに記録
+        if fc[:name] == "talk_to_reading_companion" && tool_result[:response]
+          progress = character.current_reading
+          if progress
+            progress.append_reading_log([
+              { "type" => "dialogue", "speaker" => "hal", "text" => fc[:args]["message"] },
+              { "type" => "dialogue", "speaker" => "companion", "text" => tool_result[:response] },
+            ])
+          end
+        end
+
+        tool_result
+      end
+
       private
+
+      def reading_context_from(fc, tool_result)
+        return nil unless fc[:name] == "read_aozora" && tool_result.is_a?(Hash) && tool_result[:chunk].present?
+
+        { progress_id: tool_result[:reading_progress_id], chunk_text: tool_result[:chunk] }
+      end
 
       def build_prompt(character)
         if character.has_pet?
