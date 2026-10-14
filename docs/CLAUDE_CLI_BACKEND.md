@@ -9,7 +9,8 @@
 | 会話（`ChatSession#send_message`。Discord bot、`/api/chats`） | claude -p（`CLAUDE_CLI_MODEL`。込み入った会話では `CLAUDE_CLI_DEEP_MODEL`） |
 | 思考ループと予定の実行（`Thinking::Thinker`） | claude -p（`CLAUDE_CLI_MODEL`） |
 | ツールを使わない生成（`LlmClient#generate`）: 振り返り（SN）、タグ付け、睡眠フェーズ、ペット・読書伴走者の返答、読書の前処理 | claude -p（`CLAUDE_CLI_LIGHT_MODEL`） |
-| 埋め込み、Web検索、音声の書き起こし | Gemini のまま（Claude に同じ機能がないため） |
+| Web検索 | Claude Code の WebSearch・WebFetch（会話と思考ループの両方で使える） |
+| 埋め込み、音声の書き起こし | Gemini のまま（Claude に同じ機能がないため） |
 | ストリーミングの会話（OpenAI互換API。デバイスからの会話） | Gemini のまま |
 
 埋め込みなどは Gemini のままなので、`GEMINI_API_KEY` は引き続き必要です。
@@ -24,6 +25,7 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りやペットの返答などの軽�
 # CLAUDE_CLI_COMMAND=claude     # claude コマンドのパス
 # CLAUDE_CLI_TIMEOUT=600        # 1回の実行の上限（秒）
 # CLAUDE_CLI_MAX_TURNS=20       # 1回の実行でのツール呼び出しの往復の上限
+# CLAUDE_CLI_BUILTIN_TOOLS=WebSearch,WebFetch  # 会話と思考ループで使わせる Claude Code の組み込みツール
 ```
 
 `claude` はインストール済みで、ログイン済み（または API キーを設定済み）である必要があります。memoria は認証情報を読みません。
@@ -32,8 +34,8 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りやペットの返答などの軽�
 
 1. memoria はシステムプロンプト（`PromptBuilder` の出力）とプロンプトを渡して `claude -p` を起動します。会話のときは、これまでの会話を書き起こしてプロンプトに入れます
 2. ツールは MCP サーバ `bin/memoria_mcp`（stdio）として渡します。Gemini のときと同じツール（記憶検索、予定、プラグインのツールなど）が同じ処理で実行されます
-3. Claude Code の組み込みツール（Bash・Edit など）、設定ファイル、CLAUDE.md は使いません（`--tools ""`、`--setting-sources ""`、空の作業ディレクトリ）
-4. MCP サーバは実行したツールを一時ファイルに記録し、memoria はそれを会話ログ（FL）に反映します
+3. Claude Code の組み込みツールは、読むだけの WebSearch・WebFetch だけを使います。Bash・Edit などの書き換えや実行をするツール、設定ファイル、CLAUDE.md は使いません（`--tools`、`--setting-sources ""`、空の作業ディレクトリ）
+4. MCP サーバは実行したツールを一時ファイルに記録し、memoria はそれを会話ログ（FL）に反映します。Web検索の呼び出しは claude の出力（stream-json）から拾います
 
 軽い作業は、ツールなしで `claude -p` を1回呼びます。利用枠の中で動くので、API の利用額（`ApiUsageLog`）には記録しません。
 

@@ -42,6 +42,12 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
       prompt: a_string_including("今の状況")))
   end
 
+  it "leaves web search to Claude Code instead of the Gemini tool" do
+    names = described_class.tool_definitions(character).first[:functionDeclarations].map { |f| f[:name] }
+
+    expect(names).not_to include("web_search")
+  end
+
   it "raises when claude -p fails, without falling back to Gemini" do
     allow(runner).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
     allow(llm_client).to receive(:chat)

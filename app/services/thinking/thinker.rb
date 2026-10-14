@@ -260,7 +260,8 @@ module Thinking
 
         fns = [memory_fn]
         fns += Thinking::MemoryMaintenanceTools.definitions[:functionDeclarations]
-        fns += Thinking::WebSearchTool.definition[:functionDeclarations]
+        # claude -p のときは Claude Code の WebSearch を使う（ClaudeCli::Runner）
+        fns += Thinking::WebSearchTool.definition[:functionDeclarations] unless ClaudeCli.enabled?
         fns += Companion::TalkToPetTool.definition[:functionDeclarations]
         fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
         if character.reading_enabled?

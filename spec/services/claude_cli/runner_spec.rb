@@ -44,17 +44,17 @@ RSpec.describe ClaudeCli::Runner do
     expect(result.tool_events).to eq([{ name: "semantic_search", args: { "query" => "猫" }, result: { results: "記憶", log: ["x"] } }])
   end
 
-  it "passes the prompt on stdin and runs claude without built-in tools or settings" do
+  it "passes the prompt on stdin and runs claude with only read-only built-in tools and no settings" do
     run_with('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")')
 
     args = recorded["args"]
     expect(recorded["prompt"]).to eq("こんにちは")
     expect(args).to include("-p", "--strict-mcp-config", "--no-session-persistence")
-    expect(args[args.index("--tools") + 1]).to eq("")
+    expect(args[args.index("--tools") + 1]).to eq("WebSearch,WebFetch")
     expect(args[args.index("--setting-sources") + 1]).to eq("")
     expect(args[args.index("--model") + 1]).to eq("sonnet")
     expect(args[args.index("--system-prompt") + 1]).to eq("SYS")
-    expect(args[args.index("--allowedTools") + 1]).to eq("mcp__memoria")
+    expect(args[args.index("--allowedTools") + 1, 3]).to eq(%w[mcp__memoria WebSearch WebFetch])
     expect(recorded["cwd"]).to end_with("/work")
   end
 
@@ -71,6 +71,19 @@ RSpec.describe ClaudeCli::Runner do
     expect(server["args"]).to eq(["--character", character.id.to_s, "--scene", "thinking", "--trigger", "thinking_loop"])
   end
 
+  it "records built-in web searches as tool events" do
+    result = run_with(<<~RUBY)
+      puts JSON.generate(type: "system", subtype: "init")
+      puts JSON.generate(type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "WebSearch", input: { query: "天気", mode: "standard" } }] })
+      puts JSON.generate(type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "晴れ" }] }] })
+      puts JSON.generate(type: "assistant", message: { content: [{ type: "text", text: "晴れだよ" }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "晴れだよ")
+    RUBY
+
+    expect(result.text).to eq("晴れだよ")
+    expect(result.tool_events).to eq([{ name: "web_search", args: { "query" => "天気" }, result: { answer: "晴れ" } }])
+  end
+
   it "runs without tools when no character is given" do
     result = described_class.new(command: fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "要約")'))
       .run(system_prompt: "S", prompt: "P", model: "haiku")
@@ -78,6 +91,7 @@ RSpec.describe ClaudeCli::Runner do
     expect(result.text).to eq("要約")
     expect(result.tool_events).to eq([])
     expect(recorded["args"]).not_to include("--mcp-config", "--allowedTools")
+    expect(recorded["args"][recorded["args"].index("--tools") + 1]).to eq("")
     expect(recorded["args"][recorded["args"].index("--model") + 1]).to eq("haiku")
   end
 
