@@ -59,7 +59,8 @@ class ChatSession
   end
 
   # ユーザーメッセージを受けてAI応答を生成
-  def send_message(user_message)
+  # @param on_progress [#call, nil] claude -p のとき、ツールを使う前に書いた文を途中経過として受け取る
+  def send_message(user_message, on_progress: nil)
     # ログファイルが未作成なら作成
     @chat_logger.setup! unless @chat_logger.current_log_path
     @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
@@ -77,7 +78,7 @@ class ChatSession
     # claude -p バックエンド。使えなければ返答できなかったことを返す（会話の履歴には残さない）
     if use_claude_cli?
       begin
-        ai_response = filter_response(send_via_claude(system_instruction))
+        ai_response = filter_response(send_via_claude(system_instruction, on_progress: on_progress))
       rescue ClaudeCli::Error => e
         Rails.logger.warn("[ChatSession] claude -p failed: #{e.message}") if defined?(Rails)
         return { response: ClaudeCli.failure_notice(e, what: "返答"), usage: nil }
@@ -259,17 +260,23 @@ class ChatSession
     ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
   end
 
-  def send_via_claude(system_instruction)
+  def send_via_claude(system_instruction, on_progress: nil)
+    # 途中経過も会話ログに残す
+    progress = on_progress && lambda { |text|
+      text = filter_response(text)
+      @chat_logger.log_ai_message(text)
+      on_progress.call(text)
+    }
     deep = @record.deep_mode
-    run = run_claude(system_instruction, deep: deep)
+    run = run_claude(system_instruction, deep: deep, on_progress: progress)
 
     # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
-    run = run_claude(system_instruction, deep: true) if !deep && @record.reload.deep_mode
+    run = run_claude(system_instruction, deep: true, on_progress: progress) if !deep && @record.reload.deep_mode
 
     run.text
   end
 
-  def run_claude(system_instruction, deep:)
+  def run_claude(system_instruction, deep:, on_progress: nil)
     run = ClaudeCli::Runner.new.run(
       system_prompt: system_instruction,
       prompt: claude_prompt,
@@ -277,7 +284,8 @@ class ChatSession
       scene: :chat,
       platform: @platform,
       model: ClaudeCli.model(deep: deep),
-      trigger_type: @trigger_type
+      trigger_type: @trigger_type,
+      on_progress: on_progress
     )
     # ツールがFLに記録すべき会話を返した場合、記録する
     run.tool_events.each do |event|

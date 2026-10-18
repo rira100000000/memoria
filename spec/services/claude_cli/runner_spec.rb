@@ -87,6 +87,23 @@ RSpec.describe ClaudeCli::Runner do
     expect(result.tool_events).to eq([{ name: "web_search", args: { "query" => "天気" }, result: { answer: "晴れ" } }])
   end
 
+  it "passes text written before a tool use as progress, but not the final answer or subagent text" do
+    progress = []
+    result = described_class.new(command: fake_claude(<<~RUBY))
+      puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "text", text: "調べてみるね" }] })
+      puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "Agent", input: {} }] })
+      puts JSON.generate(type: "assistant", parent_tool_use_id: "t1", message: { id: "m2", content: [{ type: "text", text: "サブの文" }] })
+      puts JSON.generate(type: "assistant", parent_tool_use_id: "t1", message: { id: "m2", content: [{ type: "tool_use", id: "t2", name: "WebSearch", input: {} }] })
+      puts JSON.generate(type: "assistant", message: { id: "m3", content: [{ type: "text", text: "分かったよ" }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "分かったよ")
+    RUBY
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet",
+           on_progress: ->(text) { progress << text })
+
+    expect(progress).to eq(["調べてみるね"])
+    expect(result.text).to eq("分かったよ")
+  end
+
   it "can use all Claude Code tools in a given directory with a settings file" do
     work = File.join(dir, "vault")
     Dir.mkdir(work)

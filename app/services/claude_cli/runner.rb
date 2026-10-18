@@ -42,8 +42,9 @@ module ClaudeCli
     # @param character [Character, nil] 指定するとそのキャラクターのツールを MCP で渡す。nil ならツールなし
     # @param scene [Symbol] :chat / :thinking（MCP サーバが出すツールが変わる）
     # @param trigger_type [String] ツール内の Gemini 呼び出し（埋め込みなど）を ApiUsageLog に記録するときの区分
+    # @param on_progress [#call, nil] ツールを使う前に書いた文（「調べてみるね」など）を、終わるのを待たずに受け取る
     # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]
-    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil)
+    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
         work_dir = File.join(dir, "work")
@@ -57,7 +58,8 @@ module ClaudeCli
 
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
-        stdout, stderr, status = execute(command_line(system_prompt, model, config_path), prompt, work_dir)
+        relay = on_progress && ProgressRelay.new(on_progress)
+        stdout, stderr, status = execute(command_line(system_prompt, model, config_path), prompt, work_dir, relay)
         messages = parse_stream(stdout)
         text = final_text(messages, stdout, stderr, status)
 
@@ -106,11 +108,18 @@ module ClaudeCli
 
     # プロンプトは長くなるので標準入力で渡す。時間切れのときはプロセスグループごと止める
     # （claude が起動した MCP サーバも残さない）
-    def execute(cmd, prompt, work_dir)
+    def execute(cmd, prompt, work_dir, relay = nil)
       Open3.popen3(*cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
         # ロケールに関係なく UTF-8 として読み書きする（LANG のない環境では ASCII として扱われ、日本語で壊れる）
         [stdin, stdout, stderr].each { |io| io.set_encoding(Encoding::UTF_8) }
-        out_reader = Thread.new { stdout.read }
+        out_reader = Thread.new do
+          out = +""
+          stdout.each_line do |line|
+            out << line
+            relay&.feed(line)
+          end
+          out
+        end
         err_reader = Thread.new { stderr.read }
         stdin.write(prompt)
         stdin.close
@@ -132,6 +141,45 @@ module ClaudeCli
       Process.kill("KILL", -pid)
     rescue Errno::ESRCH
       nil
+    end
+
+    # stream-json を1行ずつ受け取り、ツールを使う前に書いた文を途中経過として渡す。
+    # 最終応答は result の行から取るので、ここでは渡さない（ツールを使う前の文だけが途中経過になる）。
+    # サブエージェントの文（parent_tool_use_id があるもの）も渡さない
+    class ProgressRelay
+      def initialize(callback)
+        @callback = callback
+        @pending = []
+      end
+
+      def feed(line)
+        return unless line.strip.start_with?("{")
+
+        m = JSON.parse(line)
+        return unless m["type"] == "assistant" && m["message"].is_a?(Hash) && m["parent_tool_use_id"].nil?
+
+        Array(m["message"]["content"]).each do |c|
+          next unless c.is_a?(Hash)
+
+          if c["type"] == "text" && c["text"].to_s.strip.present?
+            @pending << c["text"].strip
+          elsif c["type"] == "tool_use"
+            flush
+          end
+        end
+      rescue JSON::ParserError
+        nil
+      end
+
+      private
+
+      def flush
+        texts = @pending
+        @pending = []
+        texts.each { |text| @callback.call(text) }
+      rescue => e
+        Rails.logger.warn("[ClaudeCli] progress callback failed: #{e.message}")
+      end
     end
 
     # stream-json の各行（JSON）を読む。JSON でない行は飛ばす

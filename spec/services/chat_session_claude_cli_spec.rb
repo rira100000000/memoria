@@ -52,6 +52,22 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(session.chat_logger).to have_received(:log_ai_message).with("ピコ: ぴよ")
   end
 
+  it "hands progress to the caller and writes it to the full log" do
+    allow(runner).to receive(:run) do |**kwargs|
+      kwargs[:on_progress].call("調べてみるね")
+      claude_result("分かったよ")
+    end
+    allow(session.chat_logger).to receive(:log_ai_message).and_call_original
+    progress = []
+
+    result = session.send_message("やあ", on_progress: ->(text) { progress << text })
+
+    expect(progress).to eq(["調べてみるね"])
+    expect(result[:response]).to eq("分かったよ")
+    expect(session.chat_logger).to have_received(:log_ai_message).with("調べてみるね").ordered
+    expect(session.chat_logger).to have_received(:log_ai_message).with("分かったよ").ordered
+  end
+
   it "redoes the answer with the deep model when the character switched during the run" do
     calls = []
     allow(runner).to receive(:run) do |**kwargs|

@@ -36,9 +36,18 @@ bot.message do |event|
   # 空メッセージは無視
   next if message_text.strip.empty?
 
+  typing = nil
   begin
-    # タイピング表示
-    event.channel.start_typing
+    # タイピング表示。Discord の表示は10秒ほどで消えるので、返答するまで出し直す
+    typing = Thread.new do
+      loop do
+        event.channel.start_typing
+        sleep 8
+      rescue => e
+        Rails.logger.warn("[Discord Bot] typing failed: #{e.message}")
+        sleep 8
+      end
+    end
 
     # ChatSessionを取得または作成（予定・ペットなどのツールはプラグインが platform: :discord で出す）
     channel_name = "Discord ##{event.channel.name}"
@@ -46,7 +55,12 @@ bot.message do |event|
       channel: channel_name,
       platform: :discord
     )
-    result = session.send_message(message_text)
+    # ツールを使う前に書いた文（「調べてみるね」など）は、返答を待たずに送る
+    result = session.send_message(message_text, on_progress: ->(text) {
+      send_discord_response(event.channel, text)
+      event.channel.start_typing
+    })
+    typing.kill
 
     # 応答を送信（2000文字制限対応）
     response_text = result[:response]
@@ -58,6 +72,8 @@ bot.message do |event|
   rescue => e
     Rails.logger.error("[Discord Bot] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
     event.respond("ごめんね、ちょっとエラーが起きちゃった…🥺")
+  ensure
+    typing&.kill
   end
 end
 
