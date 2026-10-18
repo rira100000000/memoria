@@ -84,7 +84,7 @@ RSpec.describe ClaudeCli::Runner do
     RUBY
 
     expect(result.text).to eq("晴れだよ")
-    expect(result.tool_events).to eq([{ name: "web_search", args: { "query" => "天気" }, result: { answer: "晴れ" } }])
+    expect(result.tool_events).to eq([{ name: "web_search", args: { "query" => "天気" }, result: { answer: "晴れ", log: ["[WebSearch] 天気"] } }])
   end
 
   it "passes text written before a tool use as progress, but not the final answer or subagent text" do

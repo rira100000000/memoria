@@ -226,8 +226,8 @@ module ClaudeCli
         name = BUILTIN_EVENT_NAMES.fetch(call["name"], call["name"])
         args = (call["input"] || {}).slice(*BUILTIN_EVENT_ARGS)
         result = { answer: results[id].to_s.truncate(BUILTIN_RESULT_CHARS) }
-        # Web検索以外（ファイルの編集やコマンドの実行など）は、会話ログに何をしたかを残す
-        result[:log] = ["[#{call["name"]}] #{args.values.join(" ").truncate(300)}"] unless BUILTIN_EVENT_NAMES.key?(call["name"])
+        # 何をしたか（検索語・開いた URL・実行したコマンドなど）を会話ログに残す
+        result[:log] = ["[#{call["name"]}] #{args.values.join(" ").truncate(300)}"]
         { name: name, args: args, result: result }
       end
     end
