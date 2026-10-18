@@ -112,9 +112,19 @@ class ThinkingLoopJob < ApplicationJob
       message = result.summary.presence ||
         "⚠️ memoria: 予定「#{wakeup.purpose}」は実行しましたが、伝える内容が空でした。"
     end
-    MessageDispatcher.dispatch(character, message) if message
+    if message
+      MessageDispatcher.dispatch(character, message)
+      record_outgoing(character, message)
+    end
 
     Rails.logger.info("[ThinkingLoopJob] Character##{character.id} completed. Summary: #{result.summary}")
+  end
+
+  # 送った連絡を会話の履歴に入れる。失敗しても連絡は届いているので、思考ループは止めない
+  def record_outgoing(character, message)
+    ChatSession.record_outgoing(character, message)
+  rescue => e
+    Rails.logger.warn("[ThinkingLoopJob] Could not add the message to the chat: #{e.message}")
   end
 
   def wakeup_context(wakeup, due_at)

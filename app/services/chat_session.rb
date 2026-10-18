@@ -13,6 +13,18 @@ class ChatSession
     new(character, record: record, channel: channel, platform: platform, extra_tools: extra_tools, extra_tool_executor: extra_tool_executor, extra_system_instruction: extra_system_instruction, extra_response_filter: extra_response_filter)
   end
 
+  # 思考ループから送った連絡に返事をもらえる時間。この間に返事が来れば、連絡の続きとして会話する
+  OUTGOING_REPLY_WINDOW = 60.minutes
+
+  # 思考ループから連絡手段に送ったメッセージを、会話の履歴に入れる（進行中の会話がなければ始める）。
+  # 返事が来たとき、何の話か分かるようにするため
+  def self.record_outgoing(character, text)
+    session = find_or_create(character, character.user)
+    session.append_outgoing(text)
+    ConversationTimeoutJob.set(wait: OUTGOING_REPLY_WINDOW).perform_later(session.record.id, session.record.message_count)
+    session
+  end
+
   def self.find_active(character, user, channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
     record = ChatSessionRecord.active.find_by(character: character, user: user)
     return nil unless record
@@ -56,6 +68,12 @@ class ChatSession
 
   def record
     @record
+  end
+
+  # 会話ログは、すでに始まっている会話にだけ書く（思考ループの記録は思考ループのログに残っている）
+  def append_outgoing(text)
+    @record.append_message("model", text)
+    @chat_logger.log_ai_message(text)
   end
 
   # ユーザーメッセージを受けてAI応答を生成
@@ -204,7 +222,8 @@ class ChatSession
     reflection_result = nil
     full_log_path = @record.full_log_path || @chat_logger.current_log_path
 
-    if @record.message_count > 1 && full_log_path
+    # 返事のなかった連絡だけの会話は振り返らない（思考ループが記憶に残している）
+    if @record.message_count > 1 && full_log_path && @record.messages.any? { |m| m["role"] == "user" }
       conversation_text = @record.messages.map { |m|
         speaker = m["role"] == "user" ? "User" : llm_role_name
         "#{speaker}: #{m["content"]}"

@@ -68,6 +68,42 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(session.chat_logger).to have_received(:log_ai_message).with("分かったよ").ordered
   end
 
+  describe ".record_outgoing" do
+    include ActiveJob::TestHelper
+
+    it "starts a chat with the message, keeps it open for a reply, and passes it to the next answer" do
+      allow(runner).to receive(:run).and_return(claude_result("よかった"))
+
+      outgoing = nil
+      expect {
+        outgoing = described_class.record_outgoing(character, "調べ終わったよ")
+      }.to have_enqueued_job(ConversationTimeoutJob).with(kind_of(Integer), 1)
+
+      expect(outgoing.record.messages).to eq([{ "role" => "model", "content" => "調べ終わったよ" }])
+      reply = described_class.find_or_create(character, character.user, platform: :discord)
+      expect(reply.record).to eq(outgoing.record)
+      reply.send_message("ありがとう")
+      expect(runner).to have_received(:run).with(hash_including(prompt: a_string_including("アオイ: 調べ終わったよ", "ありがとう")))
+    end
+
+    it "adds the message to the chat that is going on" do
+      allow(runner).to receive(:run).and_return(claude_result("うん"))
+      session.send_message("やあ")
+
+      described_class.record_outgoing(character, "そういえば")
+
+      expect(record.reload.messages.map { |m| m["content"] }).to eq(%w[やあ うん そういえば])
+    end
+
+    it "does not reflect on a chat that only has messages nobody answered" do
+      outgoing = described_class.record_outgoing(character, "おはよう")
+      outgoing.append_outgoing("今日の予定だよ")
+      expect(ReflectionService).not_to receive(:new)
+
+      outgoing.reset!
+    end
+  end
+
   it "redoes the answer with the deep model when the character switched during the run" do
     calls = []
     allow(runner).to receive(:run) do |**kwargs|

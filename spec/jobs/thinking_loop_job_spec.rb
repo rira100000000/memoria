@@ -81,6 +81,25 @@ RSpec.describe ThinkingLoopJob, type: :job do
       expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた")
     end
 
+    it "adds the delivered message to the chat so that a reply continues it" do
+      allow(ChatSession).to receive(:record_outgoing)
+      wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(ChatSession).to have_received(:record_outgoing).with(character, "まとめた")
+    end
+
+    it "still finishes the wakeup when the message cannot be added to the chat" do
+      allow(ChatSession).to receive(:record_outgoing).and_raise("db locked")
+      wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた")
+      expect(wakeup.reload.status).to eq("executed")
+    end
+
     it "saves memory by default" do
       wakeup = create(:scheduled_wakeup, character: character, scheduled_at: Time.current)
       job = described_class.new
