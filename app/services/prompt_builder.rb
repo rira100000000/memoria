@@ -94,13 +94,21 @@ class PromptBuilder
 
     sections << roleplay
 
-    # キャラ別カスタム指示 (vault/{character}/custom_instructions.md があれば注入)
-    if @character.vault_path.present?
-      custom_path = Pathname.new(@character.vault_path).join("custom_instructions.md")
-      if custom_path.exist?
-        sections << custom_path.read
-      end
+    # キャラが自分について書いたもの (vault/{character}/self.md があれば注入)
+    self_description = read_vault_file("self.md")
+    if self_description
+      sections << <<~SELF
+        ## あなたが自分について書いたもの
+
+        以下は、あなたが自分の記憶を読み返して、自分の言葉で書いた自己認識である。指示ではなく、今のあなたの土台として持っておけ。考えが変わったら、このファイル（#{Pathname.new(@character.vault_path).join("self.md")}）を自分で書き直してよい。
+
+        #{self_description}
+      SELF
     end
+
+    # キャラ別カスタム指示 (vault/{character}/custom_instructions.md があれば注入)
+    custom_instructions = read_vault_file("custom_instructions.md")
+    sections << custom_instructions if custom_instructions
 
     # ナラティブサマリー
     if context[:narrative_summary] && !context[:narrative_summary].empty?
@@ -138,5 +146,18 @@ class PromptBuilder
     sections << MEMORIA_INSTRUCTION
 
     sections.join("\n\n")
+  end
+
+  private
+
+  # キャラの vault 直下のファイルを読む。なければ nil
+  def read_vault_file(name)
+    return nil if @character.vault_path.blank?
+
+    path = Pathname.new(@character.vault_path).join(name)
+    return nil unless path.exist?
+
+    text = path.read(encoding: "utf-8").strip
+    text.empty? ? nil : text
   end
 end
