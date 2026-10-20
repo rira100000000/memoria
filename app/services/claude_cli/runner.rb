@@ -11,7 +11,7 @@ module ClaudeCli
   # 設定ファイルで決める）。作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
   # 利用者の Claude Code の設定ファイル（~/.claude など）は読まない。
   class Runner
-    Result = Struct.new(:text, :tool_events, :model, keyword_init: true)
+    Result = Struct.new(:text, :tool_events, :model, :structured, keyword_init: true)
 
     DEFAULT_TIMEOUT = 600
     DEFAULT_MAX_TURNS = 20
@@ -43,8 +43,9 @@ module ClaudeCli
     # @param scene [Symbol] :chat / :thinking（MCP サーバが出すツールが変わる）
     # @param trigger_type [String] ツール内の Gemini 呼び出し（埋め込みなど）を ApiUsageLog に記録するときの区分
     # @param on_progress [#call, nil] ツールを使う前に書いた文（「調べてみるね」など）を、終わるのを待たずに受け取る
-    # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]
-    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil)
+    # @param json_schema [Hash, nil] 指定すると、この形で答えさせる（Result#structured に入る）
+    # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]、structured: json_schema の形の答え
+    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
         work_dir = File.join(dir, "work")
@@ -59,11 +60,13 @@ module ClaudeCli
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
         relay = on_progress && ProgressRelay.new(on_progress)
-        stdout, stderr, status = execute(command_line(system_prompt, model, config_path), prompt, work_dir, relay)
+        stdout, stderr, status = execute(command_line(system_prompt, model, config_path, json_schema), prompt, work_dir, relay)
         messages = parse_stream(stdout)
         text = final_text(messages, stdout, stderr, status)
+        structured = messages.reverse.find { |m| m["type"] == "result" }&.dig("structured_output")
 
-        Result.new(text: text, tool_events: read_events(events_path) + builtin_events(messages), model: model)
+        Result.new(text: text, tool_events: read_events(events_path) + builtin_events(messages), model: model,
+                   structured: structured.is_a?(Hash) ? structured : nil)
       end
     end
 
@@ -84,7 +87,7 @@ module ClaudeCli
       }
     end
 
-    def command_line(system_prompt, model, config_path)
+    def command_line(system_prompt, model, config_path, json_schema = nil)
       builtin = config_path ? @builtin_tools : []
       cmd = [
         @command, "-p",
@@ -97,6 +100,7 @@ module ClaudeCli
         "--no-session-persistence",
         "--max-turns", @max_turns.to_s
       ]
+      cmd += ["--json-schema", JSON.generate(json_schema)] if json_schema
       if config_path
         # "default"（全部）のときの許可は設定ファイルの権限に任せ、個別に名前を挙げたものだけ許可に足す
         allowed = builtin == ["default"] ? [] : builtin
@@ -147,6 +151,9 @@ module ClaudeCli
     # 最終応答は result の行から取るので、ここでは渡さない（ツールを使う前の文だけが途中経過になる）。
     # サブエージェントの文（parent_tool_use_id があるもの）も渡さない
     class ProgressRelay
+      # json_schema を指定したとき、claude -p が答えを返すのに使うツール
+      STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
+
       def initialize(callback)
         @callback = callback
         @pending = []
@@ -163,6 +170,9 @@ module ClaudeCli
 
           if c["type"] == "text" && c["text"].to_s.strip.present?
             @pending << c["text"].strip
+          elsif c["type"] == "tool_use" && c["name"] == STRUCTURED_OUTPUT_TOOL
+            # 決まった形の答えを返す直前の文は途中経過ではない（答えの中身が返答になる）
+            @pending = []
           elsif c["type"] == "tool_use"
             flush
           end

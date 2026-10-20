@@ -96,14 +96,14 @@ class ChatSession
     # claude -p バックエンド。使えなければ返答できなかったことを返す（会話の履歴には残さない）
     if use_claude_cli?
       begin
-        ai_response = filter_response(send_via_claude(system_instruction, on_progress: on_progress))
+        reply = send_via_claude(system_instruction, on_progress: on_progress)
       rescue ClaudeCli::Error => e
         Rails.logger.warn("[ChatSession] claude -p failed: #{e.message}") if defined?(Rails)
         return { response: ClaudeCli.failure_notice(e, what: "返答"), usage: nil }
       end
-      @record.append_message("model", ai_response)
-      @chat_logger.log_ai_message(ai_response)
-      return { response: ai_response, usage: nil }
+      @record.append_message("model", reply[:final])
+      @chat_logger.log_ai_message(reply[:final])
+      return { response: reply[:shown], usage: nil }
     end
 
     # Gemini API 用メッセージ構築
@@ -278,17 +278,39 @@ class ChatSession
   # 「やっておくね」と書いたまま誰も作業しない、前の会話を探さない、ということが起きる
   CLAUDE_TURN_RULES = <<~TXT.freeze
     ## 返答と会話の仕組み
-    - 返答を書き終えた時点で、あなたの処理は終わる。返答のあとで作業を続ける手段はない。「やっておくね」「入れてくる」と書いて返答を終えると、その作業は誰もやらない
-    - やると決めた作業（ユーザーが「いいよ」と言った作業を含む）は、この返答の中でツールを使ってやり、結果を書いてから返答を終える
-    - 時間のかかる作業やあとでやる作業は、作業を任せるツールや予定のツールで実際に動く形にしてから返答する。それができないときは、まだやっていないことをはっきり書く
+    - 返答（reply）を書くと、あなたの処理はいったん終わる。「やっておくね」と書くだけでは、その作業は誰もやらない
+    - 返答のあとの動きを next_action で必ず選ぶ
+      - wait_for_user: やると決めた作業を終えた。またはユーザーの返事や判断を待つ
+      - continue: まだ続ける作業がある。返答はすぐユーザーに届き、あなたはすぐにまた起こされて next_step の作業を進める。長い作業を区切って途中経過を伝えるときにも使う
+      - delegated: 作業を任せるツールや予定のツールで、もう動く形にした（終われば、あなたが起こされる）
+    - 「進めるね」「やってくる」と書くなら continue か delegated にする。wait_for_user で終えるなら、この返答の中で終えた作業の結果か、ユーザーに求めることを書く
     - 会話はしばらく間が空くと閉じられ、次の会話はそれまでのやりとりなしで始まる。前の会話の全文は %{full_log_dir} に、始まった日時の名前（例: 20261020104536.md）で残っている。ユーザーが「さっき送った」「前に言った」と言ったときや、記憶にない情報が要るときは、まずそこを読む
   TXT
+
+  # claude -p の返答の形。返答の本文と、返答のあとの動きを両方書かせる
+  REPLY_SCHEMA = {
+    type: "object",
+    properties: {
+      reply: { type: "string", description: "ユーザーに送る返答の本文" },
+      next_action: {
+        type: "string",
+        enum: %w[wait_for_user continue delegated],
+        description: "wait_for_user: 作業を終えた、またはユーザーを待つ / continue: すぐ続きの作業をする / delegated: ツールで任せた・予定に入れた",
+      },
+      next_step: { type: "string", description: "continue のとき、次にやる作業（具体的に）" },
+    },
+    required: %w[reply next_action],
+  }.freeze
+
+  # 1つのメッセージに対して、続けて動ける回数（止まらなくなるのを防ぐ）
+  MAX_CONTINUATIONS = 5
 
   # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
   def use_claude_cli?
     ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
   end
 
+  # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）
   def send_via_claude(system_instruction, on_progress: nil)
     # 途中経過も会話ログに残す
     progress = on_progress && lambda { |text|
@@ -296,19 +318,44 @@ class ChatSession
       @chat_logger.log_ai_message(text)
       on_progress.call(text)
     }
-    deep = @record.deep_mode
-    run = run_claude(system_instruction, deep: deep, on_progress: progress)
 
-    # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
-    run = run_claude(system_instruction, deep: true, on_progress: progress) if !deep && @record.reload.deep_mode
+    earlier = []
+    next_step = nil
+    0.step do |continued|
+      reply = reply_once(system_instruction, next_step: next_step, on_progress: progress)
+      unless reply[:next_action] == "continue" && continued < MAX_CONTINUATIONS
+        return { final: reply[:text], shown: [*earlier, reply[:text]].join("\n\n") }
+      end
 
-    run.text
+      # 続ける: いまの返答を先に届けて会話に残し、もう一度動かす
+      @record.append_message("model", reply[:text])
+      progress ? progress.call(reply[:text]) : @chat_logger.log_ai_message(reply[:text])
+      earlier << reply[:text] unless progress
+      next_step = reply[:next_step].presence || "直前の返答で進めると言った作業"
+    end
   end
 
-  def run_claude(system_instruction, deep:, on_progress: nil)
+  def reply_once(system_instruction, next_step:, on_progress:)
+    deep = @record.deep_mode
+    run = run_claude(system_instruction, deep: deep, next_step: next_step, on_progress: on_progress)
+
+    # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
+    run = run_claude(system_instruction, deep: true, next_step: next_step, on_progress: on_progress) if !deep && @record.reload.deep_mode
+
+    # 決まった形で答えなかったときは、本文だけの返答として扱う
+    answer = run.structured || {}
+    {
+      text: filter_response(answer["reply"].presence || run.text),
+      next_action: answer["next_action"],
+      next_step: answer["next_step"],
+    }
+  end
+
+  def run_claude(system_instruction, deep:, next_step: nil, on_progress: nil)
     run = ClaudeCli::Runner.new.run(
       system_prompt: system_instruction,
-      prompt: claude_prompt,
+      prompt: claude_prompt(next_step),
+      json_schema: REPLY_SCHEMA,
       character: @character,
       scene: :chat,
       platform: @platform,
@@ -323,19 +370,28 @@ class ChatSession
     run
   end
 
-  # claude -p は1回ごとに独立して動くので、これまでの会話を書き起こしてプロンプトに入れる
-  def claude_prompt
-    *history, current = messages
+  # claude -p は1回ごとに独立して動くので、これまでの会話を書き起こしてプロンプトに入れる。
+  # next_step があるときは、ユーザーのメッセージではなく、自分で決めた続きの作業で起こす
+  def claude_prompt(next_step = nil)
+    history = next_step ? messages : messages[0...-1]
     lines = []
     if history.any?
       lines << "これまでの会話:"
       history.each { |m| lines << "#{m[:role] == "user" ? "User" : llm_role_name}: #{m[:content]}" }
       lines << ""
     end
-    lines << "Userの新しいメッセージ:"
-    lines << current[:content].to_s
-    lines << ""
-    lines << "#{llm_role_name}として返答してください。返答の本文だけを書いてください。"
+    if next_step
+      lines << "Userからの新しいメッセージはない。直前の返答で続けると決めた作業:"
+      lines << next_step
+      lines << ""
+      lines << "#{llm_role_name}として、この作業を進めてください。"
+    else
+      lines << "Userの新しいメッセージ:"
+      lines << messages.last[:content].to_s
+      lines << ""
+      lines << "#{llm_role_name}として返答してください。"
+    end
+    lines << "返答の本文は reply に、返答のあとの動きは next_action に書いてください。"
     lines.join("\n")
   end
 

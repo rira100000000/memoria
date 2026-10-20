@@ -104,6 +104,22 @@ RSpec.describe ClaudeCli::Runner do
     expect(result.text).to eq("分かったよ")
   end
 
+  it "asks for an answer in the given shape and returns it, without passing the text before it as progress" do
+    progress = []
+    result = described_class.new(command: fake_claude(<<~RUBY))
+      puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "text", text: "まとめるね" }] })
+      puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "StructuredOutput", input: { reply: "やあ" } }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: '{"reply":"やあ"}', structured_output: { reply: "やあ" })
+    RUBY
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet",
+           json_schema: { type: "object" }, on_progress: ->(text) { progress << text })
+
+    args = recorded["args"]
+    expect(args[args.index("--json-schema") + 1]).to eq('{"type":"object"}')
+    expect(result.structured).to eq("reply" => "やあ")
+    expect(progress).to be_empty
+  end
+
   it "can use all Claude Code tools in a given directory with a settings file" do
     work = File.join(dir, "vault")
     Dir.mkdir(work)

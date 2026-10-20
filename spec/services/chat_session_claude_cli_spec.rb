@@ -8,8 +8,12 @@ RSpec.describe ChatSession, "with the claude -p backend" do
   let(:session) { described_class.new(character, record: record, llm_client: llm_client, platform: :discord) }
   let(:runner) { instance_double(ClaudeCli::Runner) }
 
-  def claude_result(text, events = [])
-    ClaudeCli::Runner::Result.new(text: text, tool_events: events, model: "x")
+  def claude_result(text, events = [], structured: nil)
+    ClaudeCli::Runner::Result.new(text: text, tool_events: events, model: "x", structured: structured)
+  end
+
+  def structured_reply(reply, next_action, next_step = nil)
+    claude_result(JSON.generate(reply: reply), structured: { "reply" => reply, "next_action" => next_action, "next_step" => next_step }.compact)
   end
 
   around do |example|
@@ -49,8 +53,51 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     session.send_message("やあ")
 
     expect(runner).to have_received(:run).with(hash_including(
-      system_prompt: a_string_including("返答を書き終えた時点で、あなたの処理は終わる", File.join(character.vault_path, "FullLog"))
+      system_prompt: a_string_including("next_action で必ず選ぶ", File.join(character.vault_path, "FullLog")),
+      json_schema: ChatSession::REPLY_SCHEMA
     ))
+  end
+
+  it "answers with the reply field of the structured answer" do
+    allow(runner).to receive(:run).and_return(structured_reply("こんにちは", "wait_for_user"))
+
+    result = session.send_message("やあ")
+
+    expect(result[:response]).to eq("こんにちは")
+    expect(runner).to have_received(:run).once
+  end
+
+  it "sends the reply and runs again at once when the character chose to continue" do
+    replies = [structured_reply("入れてくる", "continue", "ffmpeg を入れる"), structured_reply("入れたよ", "wait_for_user")]
+    allow(runner).to receive(:run) { replies.shift }
+    progress = []
+
+    result = session.send_message("おｋ", on_progress: ->(text) { progress << text })
+
+    expect(progress).to eq(["入れてくる"])
+    expect(result[:response]).to eq("入れたよ")
+    expect(record.reload.messages.map { |m| m["content"] }).to eq(%w[おｋ 入れてくる 入れたよ])
+    expect(runner).to have_received(:run).with(hash_including(
+      prompt: a_string_including("アオイ: 入れてくる", "続けると決めた作業:\nffmpeg を入れる")
+    ))
+  end
+
+  it "puts the replies together when progress cannot be sent" do
+    replies = [structured_reply("入れてくる", "continue", "ffmpeg を入れる"), structured_reply("入れたよ", "wait_for_user")]
+    allow(runner).to receive(:run) { replies.shift }
+
+    result = session.send_message("おｋ")
+
+    expect(result[:response]).to eq("入れてくる\n\n入れたよ")
+    expect(record.reload.messages.map { |m| m["content"] }).to eq(%w[おｋ 入れてくる 入れたよ])
+  end
+
+  it "stops continuing after a few runs" do
+    allow(runner).to receive(:run).and_return(structured_reply("まだやる", "continue", "続き"))
+
+    session.send_message("やって", on_progress: ->(_) {})
+
+    expect(runner).to have_received(:run).exactly(ChatSession::MAX_CONTINUATIONS + 1).times
   end
 
   it "writes tool logs to the full log" do
