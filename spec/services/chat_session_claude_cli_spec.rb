@@ -43,6 +43,16 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     ))
   end
 
+  it "tells the character that a reply ends its turn and where earlier conversations are" do
+    allow(runner).to receive(:run).and_return(claude_result("ok"))
+
+    session.send_message("やあ")
+
+    expect(runner).to have_received(:run).with(hash_including(
+      system_prompt: a_string_including("返答を書き終えた時点で、あなたの処理は終わる", File.join(character.vault_path, "FullLog"))
+    ))
+  end
+
   it "writes tool logs to the full log" do
     allow(runner).to receive(:run).and_return(claude_result("ok", [{ name: "talk_to_pet", args: {}, result: { log: ["ピコ: ぴよ"] } }]))
     allow(session.chat_logger).to receive(:log_ai_message).and_call_original

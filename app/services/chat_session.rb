@@ -274,6 +274,16 @@ class ChatSession
     parameters: { type: "OBJECT", properties: { reason: { type: "STRING", description: "切り替える理由（短く）" } } }
   }.freeze
 
+  # claude -p は返答ごとに1回動いて終わる。それを本人に知らせておかないと、
+  # 「やっておくね」と書いたまま誰も作業しない、前の会話を探さない、ということが起きる
+  CLAUDE_TURN_RULES = <<~TXT.freeze
+    ## 返答と会話の仕組み
+    - 返答を書き終えた時点で、あなたの処理は終わる。返答のあとで作業を続ける手段はない。「やっておくね」「入れてくる」と書いて返答を終えると、その作業は誰もやらない
+    - やると決めた作業（ユーザーが「いいよ」と言った作業を含む）は、この返答の中でツールを使ってやり、結果を書いてから返答を終える
+    - 時間のかかる作業やあとでやる作業は、作業を任せるツールや予定のツールで実際に動く形にしてから返答する。それができないときは、まだやっていないことをはっきり書く
+    - 会話はしばらく間が空くと閉じられ、次の会話はそれまでのやりとりなしで始まる。前の会話の全文は %{full_log_dir} に、始まった日時の名前（例: 20261020104536.md）で残っている。ユーザーが「さっき送った」「前に言った」と言ったときや、記憶にない情報が要るときは、まずそこを読む
+  TXT
+
   # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
   def use_claude_cli?
     ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
@@ -356,7 +366,8 @@ class ChatSession
   def build_system_instruction(context)
     base = @prompt_builder.build(context: context, channel: @channel)
     plugin_segments = MemoriaServer::Plugin.prompt_segments(@character, scene: :chat)
-    [base, plugin_segments, @extra_system_instruction].map(&:to_s).reject(&:empty?).join("\n\n")
+    claude_segment = use_claude_cli? ? format(CLAUDE_TURN_RULES, full_log_dir: @vault.path_for(MemoriaCore::VaultManager::FL_DIR)) : nil
+    [base, plugin_segments, claude_segment, @extra_system_instruction].map(&:to_s).reject(&:empty?).join("\n\n")
   end
 
   # LLM の生応答テキストを ChatSessionRecord / ChatLogger に保存する前に、
