@@ -88,6 +88,9 @@ module Api
             delta_payload[:role] = "assistant" if first_delta
             first_delta = false
             write_sse(completion_id, created, model_label, delta: delta_payload, finish_reason: nil)
+          elsif chunk[:message_break]
+            # アダプタが途中経過と続きの返答を区切った。OpenAI 互換では1つの返答なので、空行でつなぐ
+            write_sse(completion_id, created, model_label, delta: { content: "\n\n" }, finish_reason: nil) unless first_delta
           elsif chunk[:x_memoria]
             # capability 出力（emotion / motion / servo 等）。OpenAI 互換の delta に
             # x_memoria 拡張フィールドとして乗せる。クライアントは未対応なら無視できる
@@ -129,6 +132,8 @@ module Api
         MemoriaServer.adapter.respond(context[:current_input], context: context).each do |chunk|
           if chunk[:delta]
             full_text << chunk[:delta]
+          elsif chunk[:message_break]
+            full_text << "\n\n" unless full_text.empty?
           elsif chunk[:x_memoria]
             # 同じキーが繰り返し更新される場合は last-wins
             x_memoria.merge!(chunk[:x_memoria])

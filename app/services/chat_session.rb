@@ -76,6 +76,11 @@ class ChatSession
     @chat_logger.log_ai_message(text)
   end
 
+  # claude -p で返答するか（MS のアダプタが、途中経過の返し方を選ぶのに使う）
+  def use_claude_cli?
+    ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
+  end
+
   # ユーザーメッセージを受けてAI応答を生成
   # @param on_progress [#call, nil] claude -p のとき、ツールを使う前に書いた文を途中経過として受け取る
   def send_message(user_message, on_progress: nil)
@@ -306,9 +311,6 @@ class ChatSession
   MAX_CONTINUATIONS = 5
 
   # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
-  def use_claude_cli?
-    ClaudeCli.enabled? && @extra_tools.nil? && @extra_tool_executor.nil?
-  end
 
   # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）
   def send_via_claude(system_instruction, on_progress: nil)

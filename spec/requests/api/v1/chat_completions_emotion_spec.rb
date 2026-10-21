@@ -26,6 +26,7 @@ RSpec.describe "Api::V1 chat_completions with emotion capability", type: :reques
         block.call(delta: "にちは")
         block.call(done: true, usage: { input_tokens: 10, output_tokens: 3 })
       end
+      allow(session).to receive_messages(use_claude_cli?: false, record: instance_double(ChatSessionRecord, id: 1, message_count: 2))
       session
     end
   end

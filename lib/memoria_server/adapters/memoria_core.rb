@@ -18,14 +18,26 @@ module MemoriaServer
         tier = context.dig(:x_memoria, :light) ? :light : :main
         Enumerator.new do |yielder|
           character = Character.find(character_id)
-          session = build_session(character)
-          session.send_message_stream(input, tier: tier) do |chunk|
-            if chunk[:delta]
-              yielder << { delta: chunk[:delta] }
-            elsif chunk[:done]
-              yielder << { done: true, metadata: { usage: chunk[:usage] } }
+          session = build_session(character, context)
+          if session.use_claude_cli?
+            # claude -p は返答を最後にまとめて返す。ツールを使う前に書いた文（「調べてみるね」など）と、
+            # 続けて動くときの途中の返答は、そのつど区切りの付いたメッセージとして先に返す
+            result = session.send_message(input, on_progress: ->(text) {
+              yielder << { delta: text }
+              yielder << { message_break: true }
+            })
+            yielder << { delta: result[:response] }
+            yielder << { done: true, metadata: { usage: result[:usage] } }
+          else
+            session.send_message_stream(input, tier: tier) do |chunk|
+              if chunk[:delta]
+                yielder << { delta: chunk[:delta] }
+              elsif chunk[:done]
+                yielder << { done: true, metadata: { usage: chunk[:usage] } }
+              end
             end
           end
+          schedule_timeout(session.record)
         end
       end
 
@@ -63,8 +75,17 @@ module MemoriaServer
 
       private
 
-      def build_session(character)
-        ::ChatSession.find_or_create(character, character.user)
+      # 経路（Discord など）は、プラグインがツールを出し分けたり、プロンプトに会話の場所を書いたりするのに使う
+      def build_session(character, context = {})
+        ::ChatSession.find_or_create(character, character.user, channel: context[:channel], platform: context[:platform])
+      end
+
+      # しばらく話しかけられなければ会話を閉じ、振り返って記憶を整理する。
+      # 新しい発話があれば、ジョブ側がメッセージ数の違いで見分けて何もしない
+      def schedule_timeout(record)
+        ::ConversationTimeoutJob
+          .set(wait: ::ConversationTimeoutJob::TIMEOUT_MINUTES.minutes)
+          .perform_later(record.id, record.message_count)
       end
     end
   end

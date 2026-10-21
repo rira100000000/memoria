@@ -30,7 +30,6 @@ bot.message do |event|
     next
   end
 
-  user = character.user
   message_text = event.content
 
   # 空メッセージは無視
@@ -49,29 +48,14 @@ bot.message do |event|
       end
     end
 
-    # ChatSessionを取得または作成（予定・ペットなどのツールはプラグインが platform: :discord で出す）
-    channel_name = "Discord ##{event.channel.name}"
-    session = ChatSession.find_or_create(character, user,
-      channel: channel_name,
-      platform: :discord
-    )
-    # ツールを使う前に書いた文（「調べてみるね」など）は、返答を待たずに送る
-    result = session.send_message(message_text, on_progress: ->(text) {
+    # アダプタに渡す。途中経過（「調べてみるね」など）は返答を待たずに送る
+    MemoriaServer::DiscordRelay.reply(character, message_text, channel_name: "Discord ##{event.channel.name}") do |text, last|
+      typing.kill if last
       send_discord_response(event.channel, text)
-      event.channel.start_typing
-    })
-    typing.kill
-
-    # 応答を送信（2000文字制限対応）
-    response_text = result[:response]
-    send_discord_response(event.channel, response_text)
-
-    # タイムアウトワーカーをスケジュール
-    schedule_timeout(session.record)
-
+    end
   rescue => e
     Rails.logger.error("[Discord Bot] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
-    event.respond("ごめんね、ちょっとエラーが起きちゃった…🥺")
+    event.respond("⚠️ memoria: 返答できませんでした（#{e.class}: #{e.message.to_s[0, 200]}）")
   ensure
     typing&.kill
   end
@@ -87,14 +71,6 @@ def send_discord_response(channel, text)
       channel.send_message(chunk)
     end
   end
-end
-
-def schedule_timeout(record)
-  # 既存のタイムアウトジョブのキャンセルは不要：
-  # ジョブ側で message_count を比較して新しいメッセージがあれば早期 return する
-  ConversationTimeoutJob
-    .set(wait: ConversationTimeoutJob::TIMEOUT_MINUTES.minutes)
-    .perform_later(record.id, record.message_count)
 end
 
 puts "[Discord Bot] Starting..."

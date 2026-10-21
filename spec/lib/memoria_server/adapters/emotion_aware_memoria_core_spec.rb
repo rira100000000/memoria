@@ -17,6 +17,7 @@ RSpec.describe MemoriaServer::Adapters::EmotionAwareMemoriaCore do
     allow(mock_session).to receive(:send_message_stream) do |_input, &block|
       llm_chunks.each { |c| block.call(c) }
     end
+    allow(mock_session).to receive_messages(use_claude_cli?: false, record: instance_double(ChatSessionRecord, id: 1, message_count: 2))
   end
 
   context "when wants is empty" do

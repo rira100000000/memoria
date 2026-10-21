@@ -24,12 +24,13 @@ RSpec.describe "memoria 本体の境界" do
       lib/memoria_server/audio/*.rb
       lib/memoria_server/plugin.rb
       lib/memoria_server/routines.rb
+      lib/memoria_server/discord_relay.rb
       bin/jobs
       app/controllers/application_controller.rb
       app/controllers/api/v1/*.rb
       app/models/{application_record,device,device_key,presence,transfer,channel_binding,user,admin_key,character,scheduled_wakeup}.rb
       app/services/message_dispatcher.rb
-      app/jobs/{application_job,thinking_loop_job,conversation_timeout_job,db_backup_job}.rb
+      app/jobs/{application_job,thinking_loop_job,db_backup_job}.rb
       bin/discord_bot.rb
       config/initializers/memoria_server.rb
     ]
@@ -45,10 +46,8 @@ RSpec.describe "memoria 本体の境界" do
 
   let(:known) do
     {
-      "app/jobs/conversation_timeout_job.rb" => %w[ChatSession ChatSessionRecord SleepPhaseJob TagProfilingJob],
       "app/models/character.rb" => %w[Companion],
       "app/models/user.rb" => %w[MemoriaCore],
-      "bin/discord_bot.rb" => %w[ChatSession],
     }
   end
 
