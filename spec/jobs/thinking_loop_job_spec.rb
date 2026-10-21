@@ -2,66 +2,75 @@ require "rails_helper"
 
 RSpec.describe ThinkingLoopJob, type: :job do
   let(:character) { create(:character, thinking_loop_enabled: true) }
+  let(:adapter) { instance_double(MemoriaServer::Adapter, wake: { share_message: nil, summary: "まとめた" }, record_outgoing: nil) }
+
+  before do
+    allow(MemoriaServer).to receive(:adapter).and_return(adapter)
+    allow(MessageDispatcher).to receive(:dispatch)
+    allow_any_instance_of(described_class).to receive(:sleep)
+  end
 
   it "is enqueued in the low queue" do
     expect(described_class.new.queue_name).to eq("low")
   end
 
-  describe "#perform" do
-    it "skips when thinking_loop disabled" do
-      character.update!(thinking_loop_enabled: false)
-      allow(MemoriaCore::Core).to receive(:new)
-
+  describe "free thinking" do
+    it "wakes the character through the adapter" do
       described_class.new.perform(character.id)
 
-      expect(MemoriaCore::Core).not_to have_received(:new)
+      expect(adapter).to have_received(:wake).with(character_id: character.id, wakeup: nil)
     end
 
-    it "skips when budget exceeded" do
-      allow(ApiBudget).to receive(:can_spend?).and_return(false)
-      allow(MemoriaCore::Core).to receive(:new).and_return(
-        instance_double(MemoriaCore::Core)
-      )
+    it "skips when thinking_loop disabled" do
+      character.update!(thinking_loop_enabled: false)
 
       described_class.new.perform(character.id)
 
-      expect(ApiBudget).to have_received(:can_spend?).with(character.user, "thinking_loop")
+      expect(adapter).not_to have_received(:wake)
+    end
+
+    it "ends quietly when the adapter did not wake" do
+      allow(adapter).to receive(:wake).and_raise(MemoriaServer::WakeSkipped, "予算切れ")
+
+      expect { described_class.new.perform(character.id) }.not_to raise_error
+      expect(MessageDispatcher).not_to have_received(:dispatch)
+    end
+
+    it "sends what the character wants to share" do
+      allow(adapter).to receive(:wake).and_return({ share_message: "おはよう", summary: "挨拶した" })
+
+      described_class.new.perform(character.id)
+
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "おはよう")
+    end
+  end
+
+  describe "wakeups" do
+    it "passes the wakeup to the adapter" do
+      wakeup = create(:scheduled_wakeup, character: character, purpose: "朝の挨拶", action: "share",
+        remember: false, scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(adapter).to have_received(:wake).with(character_id: character.id, wakeup: {
+        purpose: "朝の挨拶", action: "share", recurrence: nil, due_at: wakeup.scheduled_at, remember: false,
+      })
     end
 
     it "skips cancelled wakeups" do
       wakeup = create(:scheduled_wakeup, character: character, status: "cancelled")
 
-      allow(MemoriaCore::Core).to receive(:new)
       described_class.new.perform(character.id, wakeup.id)
 
-      expect(MemoriaCore::Core).not_to have_received(:new)
+      expect(adapter).not_to have_received(:wake)
     end
 
     it "marks wakeup as executed" do
       wakeup = create(:scheduled_wakeup, character: character, status: "pending")
 
-      allow(ApiBudget).to receive(:can_spend?).and_return(false)
-
       described_class.new.perform(character.id, wakeup.id)
 
       expect(wakeup.reload.status).to eq("executed")
-    end
-  end
-
-  describe "wakeups" do
-    let(:result) do
-      Thinking::ThinkingResult.new(all_messages: [], summary: "まとめた", share_message: nil, participants: [:self])
-    end
-
-    before do
-      allow(MemoriaCore::Core).to receive(:new).and_return(instance_double(MemoriaCore::Core))
-      allow(Thinking::ThoughtHealthMonitor).to receive(:report).and_return({})
-      allow(Thinking::SnapshotBuilder).to receive(:build).and_return("snapshot")
-      allow(Thinking::Thinker).to receive(:run).and_return(result)
-      allow(MessageDispatcher).to receive(:dispatch)
-      allow(ApiBudget).to receive(:can_spend?).and_return(true)
-      allow_any_instance_of(described_class).to receive(:sleep)
-      allow_any_instance_of(described_class).to receive(:save_as_memory)
     end
 
     it "ignores a stale job after the wakeup was moved" do
@@ -69,7 +78,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i - 60)
 
-      expect(Thinking::Thinker).not_to have_received(:run)
+      expect(adapter).not_to have_received(:wake)
       expect(wakeup.reload.status).to eq("pending")
     end
 
@@ -82,16 +91,15 @@ RSpec.describe ThinkingLoopJob, type: :job do
     end
 
     it "adds the delivered message to the chat so that a reply continues it" do
-      allow(ChatSession).to receive(:record_outgoing)
       wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-      expect(ChatSession).to have_received(:record_outgoing).with(character, "まとめた")
+      expect(adapter).to have_received(:record_outgoing).with(character_id: character.id, text: "まとめた")
     end
 
     it "still finishes the wakeup when the message cannot be added to the chat" do
-      allow(ChatSession).to receive(:record_outgoing).and_raise("db locked")
+      allow(adapter).to receive(:record_outgoing).and_raise("db locked")
       wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
@@ -100,45 +108,35 @@ RSpec.describe ThinkingLoopJob, type: :job do
       expect(wakeup.reload.status).to eq("executed")
     end
 
-    it "saves memory by default" do
-      wakeup = create(:scheduled_wakeup, character: character, scheduled_at: Time.current)
-      job = described_class.new
-      allow(job).to receive(:save_as_memory)
-
-      job.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
-
-      expect(job).to have_received(:save_as_memory)
-    end
-
-    it "skips memory when remember is false" do
-      wakeup = create(:scheduled_wakeup, character: character, remember: false, scheduled_at: Time.current)
-      job = described_class.new
-      allow(job).to receive(:save_as_memory)
-
-      job.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
-
-      expect(job).not_to have_received(:save_as_memory)
-    end
-
-    it "notifies when the budget is exceeded for a user-requested wakeup" do
-      allow(ApiBudget).to receive(:can_spend?).and_return(false)
+    it "notifies without retrying when the adapter did not wake a user-requested wakeup" do
+      allow(adapter).to receive(:wake).and_raise(MemoriaServer::WakeSkipped, "今日のAPI予算を使い切っていたため、動けませんでした。")
       wakeup = create(:scheduled_wakeup, character: character, origin: "user", scheduled_at: Time.current)
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
+      expect(adapter).to have_received(:wake).once
       expect(MessageDispatcher).to have_received(:dispatch).with(character, include("予算"))
     end
 
     it "retries once, then notifies instead of failing silently" do
-      allow(Thinking::Thinker).to receive(:run).and_raise(RuntimeError, "boom")
+      allow(adapter).to receive(:wake).and_raise(RuntimeError, "boom")
       wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
 
       expect {
         described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
       }.not_to raise_error
 
-      expect(Thinking::Thinker).to have_received(:run).twice
+      expect(adapter).to have_received(:wake).twice
       expect(MessageDispatcher).to have_received(:dispatch).with(character, include("エラー"))
+    end
+
+    it "notifies when the adapter does not support waking" do
+      allow(MemoriaServer).to receive(:adapter).and_return(MemoriaServer::Adapter.new)
+      wakeup = create(:scheduled_wakeup, character: character, origin: "user", scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("起床に対応していません"))
     end
 
     describe "recurring" do
@@ -146,7 +144,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
         travel_to Time.zone.parse("2026-10-07 07:00:10") do
           wakeup = create(:scheduled_wakeup, character: character, recurrence: "0 7 * * * Asia/Tokyo",
             scheduled_at: Time.zone.parse("2026-10-07 07:00"))
-          allow(Thinking::Thinker).to receive(:run).and_raise(RuntimeError, "boom")
+          allow(adapter).to receive(:wake).and_raise(RuntimeError, "boom")
 
           described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
@@ -163,7 +161,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
           described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-          expect(Thinking::Thinker).not_to have_received(:run)
+          expect(adapter).not_to have_received(:wake)
           expect(MessageDispatcher).to have_received(:dispatch).with(character, include("飛ばしました"))
           expect(wakeup.reload.scheduled_at).to eq(Time.zone.parse("2026-10-08 07:00"))
         end
@@ -174,18 +172,8 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
         described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-        expect(Thinking::Thinker).not_to have_received(:run)
+        expect(adapter).not_to have_received(:wake)
       end
-    end
-
-    it "tells the master once and does not retry when claude -p is unavailable in free thinking" do
-      ClaudeCli.reset_failure_notices!
-      allow(Thinking::Thinker).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
-
-      2.times { described_class.new.perform(character.id) }
-
-      expect(MessageDispatcher).to have_received(:dispatch).once
-        .with(character, "⚠️ memoria: claude -p が使えなかったので、思考ループを実行できませんでした（usage limit reached）")
     end
   end
 end

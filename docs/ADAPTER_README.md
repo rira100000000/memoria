@@ -129,6 +129,28 @@ UI 側で過去の会話を表示したいケース（`GET /api/v1/sessions/:id/
 
 未実装の場合は `[]` を返す。
 
+### 3.3.1 オプション：`wake(character_id:, wakeup: nil)`
+
+予定の時刻（ユーザーやキャラが入れた予定）や思考ループで、MS がキャラクターを起こすときに呼ぶ。ユーザーの発話なしに、キャラクター自身が考えて動く。記憶の想起・プロンプト・LLM の呼び出し・記憶への保存はアダプタの責務。MS が持つのは予定を進めること、失敗を知らせること、返り値の `share_message` を連絡手段（Discord 等）に送ること。
+
+```ruby
+def wake(character_id:, wakeup: nil)
+  # wakeup は予定から起きたときだけ渡る。予定なしの思考ループでは nil
+  #   { purpose: "朝の挨拶", action: "share" | nil, recurrence: "0 7 * * *" | nil,
+  #     due_at: Time, remember: true }
+  # action が "share" の予定は、MS が必ず何かを送る（share_message が空なら summary を送る）
+  { share_message: "おはよう", summary: "朝の挨拶をした" }
+end
+```
+
+- 実行しなかったとき（予算切れ、LLM が使えない等、やり直しても同じ結果になる場合）は `MemoriaServer::WakeSkipped` を理由のメッセージ付きで raise する。MS は理由を予定の失敗としてユーザーに知らせ、やり直さない
+- それ以外の例外は、MS が少し待って1回やり直し、それでも失敗したら知らせる
+- 未実装の場合は `WakeSkipped`（起床に対応していない）として扱われる
+
+### 3.3.2 オプション：`record_outgoing(character_id:, text:)`
+
+`wake` の `share_message` を MS が連絡手段に送ったあとに呼ぶ。送った言葉を会話の履歴に入れておくと、ユーザーの返事がその続きとして扱える。未実装なら何もしない。
+
 ### 3.4 永続化要件（必須）
 
 > アダプタは `character_id` をキーに会話状態を永続化しなければならない。同じ character_id への以後のリクエストは過去文脈を踏まえて応答すること。
@@ -555,7 +577,7 @@ A. MS はパススルーするだけです。アダプタが対応するかは�
 
 ### Q. キャラが「自分から話しかける」にはどうすれば？
 
-A. アダプタの好きなタイミング（cron、Solid Queue、内発的動機エンジン等）で `MemoriaServer.utter(character_id:, text:)` を呼んでください。MS は現在 active な device の SSE チャンネルに流します。スケジューラ自体は MS は提供しません。
+A. 決まった時刻に起こしたいなら、MS の予定（`ScheduledWakeup`）を使い、アダプタに `wake`（3.3.1）を実装してください。MS が予定の時刻に `wake` を呼び、返り値を連絡手段に送ります。アダプタ独自のタイミング（内発的動機エンジン等）で話させたいときは、`MemoriaServer.utter(character_id:, text:)` を呼んでください。MS は現在 active な device の SSE チャンネルに流します。
 
 ### Q. 複数キャラクターを同時に動かせる？
 

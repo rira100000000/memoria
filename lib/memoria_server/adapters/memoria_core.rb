@@ -52,6 +52,15 @@ module MemoriaServer
         end
       end
 
+      def wake(character_id:, wakeup: nil)
+        ::Thinking::Wake.run(Character.find(character_id), wakeup: wakeup)
+      end
+
+      # 送った連絡を会話の履歴に入れる。返事が来たら同じ会話として続く
+      def record_outgoing(character_id:, text:)
+        ::ChatSession.record_outgoing(Character.find(character_id), text)
+      end
+
       private
 
       def build_session(character)

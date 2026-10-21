@@ -41,5 +41,23 @@ module MemoriaServer
     def history(character_id:, limit: 50)
       []
     end
+
+    # オプション：予定の時刻や思考ループで、キャラクターを起こす。ユーザーの発話なしに、
+    # キャラクター自身が考えて動く。記憶の想起・プロンプト・LLM の呼び出し・記憶への保存はアダプタが持つ。
+    # 実行しなかったときは MemoriaServer::WakeSkipped を raise する。それ以外の例外はやり直しの対象になる。
+    #
+    # @param wakeup [Hash, nil] 予定から起きたときの予定の内容。予定なしの思考ループでは nil
+    #   { purpose: String, action: String|nil ("share" なら必ず伝える予定), recurrence: String|nil,
+    #     due_at: Time（予定の時刻）, remember: Boolean（起きて考えたことを記憶に残すか） }
+    # @return [Hash] { share_message: String|nil（ユーザーに伝えたいこと）, summary: String|nil（やったことのまとめ） }
+    def wake(character_id:, wakeup: nil)
+      raise WakeSkipped, "このキャラクターのアダプタ（#{self.class.name}）は起床に対応していません"
+    end
+
+    # オプション：wake の結果を memoria が連絡手段に送ったあとに呼ばれる。
+    # 送った言葉を会話の履歴に入れ、ユーザーの返事がその続きになるようにする
+    def record_outgoing(character_id:, text:)
+      # noop by default
+    end
   end
 end

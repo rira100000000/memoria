@@ -44,8 +44,6 @@ RSpec.describe "memoria 本体の境界" do
   let(:known) do
     {
       "app/jobs/conversation_timeout_job.rb" => %w[ChatSession ChatSessionRecord SleepPhaseJob TagProfilingJob],
-      "app/jobs/thinking_loop_job.rb" => %w[ApiBudget ApiUsageLog ChatSession ClaudeCli Companion LlmClient MemoriaCore
-        Reading ReadingProgress ReflectionService TagProfilingJob Thinking],
       "app/models/character.rb" => %w[Companion],
       "app/models/user.rb" => %w[MemoriaCore],
       "bin/discord_bot.rb" => %w[ChatSession],

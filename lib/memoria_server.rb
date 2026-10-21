@@ -7,6 +7,10 @@ module MemoriaServer
   # アダプタ contract 違反時に raise
   class ContractViolation < Error; end
 
+  # アダプタが起床（wake）を実行しなかったときに raise する（予算切れ、LLM が使えない、起床に対応していない等）。
+  # やり直しても同じ結果になる場合に使う。memoria は理由を予定の失敗として知らせ、やり直さない
+  class WakeSkipped < Error; end
+
   class << self
     # アダプタ取得。環境変数 MS_ADAPTER により切替可能：
     #   - "memoria_core"（デフォルト）: 同梱リファレンス実装
