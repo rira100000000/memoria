@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe Thinking::ScheduleTools do
+RSpec.describe MemoriaServer::Plugins::ScheduleTools do
   let(:character) { create(:character, thinking_loop_enabled: true) }
 
   describe ".list" do
