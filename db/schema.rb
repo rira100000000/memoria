@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_21_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
   create_table "admin_keys", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "key_hash", null: false
@@ -51,7 +51,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_120000) do
   create_table "characters", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "name", null: false
-    t.json "pet_config"
+    t.json "plugin_settings", default: {}, null: false
     t.integer "reading_companion_id"
     t.boolean "reading_enabled", default: false, null: false
     t.text "system_prompt"

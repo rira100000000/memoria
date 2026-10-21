@@ -9,8 +9,6 @@ module Thinking
       やることや、やりたいことがあれば、利用可能なツールを使って行動できます。
       何もしなくても構いません。
 
-      %{pet_section}
-
       ## スケジュール
       次にいつ起きたいか、add_scheduleツールで予定を入れられます。
       複数の予定を入れることもできます（例: 朝の挨拶と夜のリマインダー）。
@@ -29,22 +27,6 @@ module Thinking
       }
       ```
     PROMPT
-
-    PET_SECTION_WITH_PET = <<~PET
-      ## あなたの相棒
-      あなたのそばに%{pet_name}（%{pet_appearance}）がいます。
-      特徴: %{pet_traits}
-      talk_to_petでいつでも話しかけられます。
-      この子は長期の記憶を持てません。前に話したことは覚えていません。
-      でもあなたのことが大好きで、いつもそばにいます。
-    PET
-
-    PET_SECTION_WITHOUT_PET = <<~PET
-      ## 小さな相棒を迎え入れませんか？
-      あなたの内面世界に、小さな相棒を迎え入れることができます。
-      adopt_petツールで姿を選び、名前をつけてあげてください。
-      この子はあなただけの唯一無二のパートナーになります。
-    PET
 
     MAX_TOOL_ROUNDS = 5
 
@@ -92,8 +74,8 @@ module Thinking
 
       run.tool_events.each do |event|
         fc = { name: event[:name], args: event[:args] }
-        participants << :pet if fc[:name] == "talk_to_pet"
         participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
+        participants << event[:result][:participant] if event[:result].is_a?(Hash) && event[:result][:participant].present?
         log_tool_interaction(messages, fc, event[:result], character)
 
         if (context = reading_context_from(fc, event[:result]))
@@ -158,8 +140,8 @@ module Thinking
         has_non_reading_tool = false
         function_responses = result[:function_calls].map do |fc|
           tool_result = call_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
-          participants << :pet if fc[:name] == "talk_to_pet"
           participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
+          participants << tool_result[:participant] if tool_result.is_a?(Hash) && tool_result[:participant].present?
           log_tool_interaction(messages, fc, tool_result, character)
 
           # 読書チャンク処理
@@ -170,7 +152,7 @@ module Thinking
             has_non_reading_tool = true
           end
 
-          { name: fc[:name], response: tool_result }
+          { name: fc[:name], response: tool_result.except(:log, :participant) }
         end
 
         # read_aozora以外のツールが呼ばれた場合のみリセット（読書→感想のチャンスを維持）
@@ -236,20 +218,12 @@ module Thinking
       end
 
       def build_prompt(character)
-        if character.has_pet?
-          pet_section = format(PET_SECTION_WITH_PET,
-            pet_name: character.pet_name,
-            pet_appearance: character.pet_appearance,
-            pet_traits: character.pet_traits || "")
-        else
-          pet_section = PET_SECTION_WITHOUT_PET
-        end
         approval_note = if MemoriaServer::Plugin.schedule_policy(character)[:self_recurring_needs_approval]
           "あなたが自分で入れた繰り返しの予定は、マスターが承認するまで動きません。"
         else
           ""
         end
-        format(BASE_PROMPT, pet_section: pet_section, approval_note: approval_note)
+        format(BASE_PROMPT, approval_note: approval_note)
       end
 
       def build_tools(character)
@@ -269,8 +243,6 @@ module Thinking
         fns += Thinking::MemoryMaintenanceTools.definitions[:functionDeclarations]
         # claude -p のときは Claude Code の WebSearch を使う（ClaudeCli::Runner）
         fns += Thinking::WebSearchTool.definition[:functionDeclarations] unless ClaudeCli.enabled?
-        fns += Companion::TalkToPetTool.definition[:functionDeclarations]
-        fns += Companion::AdoptPetTool.definition[:functionDeclarations] unless character.has_pet?
         if character.reading_enabled?
           fns += Reading::AozoraTool.definition[:functionDeclarations]
           fns += Reading::TalkToCompanionTool.definition[:functionDeclarations] if character.reading_companion
@@ -284,19 +256,6 @@ module Thinking
 
       def execute_tool(fc, core:, llm_client:, health:, character:)
         result = case fc[:name]
-        when "talk_to_pet"
-          Companion::TalkToPetTool.execute(
-            fc[:args]["message"],
-            llm_client: llm_client,
-            health: health,
-            character: character
-          )
-        when "adopt_pet"
-          Companion::AdoptPetTool.execute(
-            character: character,
-            name: fc[:args]["name"],
-            appearance: fc[:args]["appearance"]
-          )
         when "list_yesterdays_memories", "merge_memories", "archive_memory"
           Thinking::MemoryMaintenanceTools.execute(fc[:name], fc[:args], core: core, character: character, llm_client: llm_client)
         when "web_search"
@@ -329,20 +288,18 @@ module Thinking
 
       # ツール呼び出しをFL用メッセージとして記録
       def log_tool_interaction(messages, fc, tool_result, character)
+        # プラグインのツールが会話ログに残す文を返したときは、それをそのまま残す（会話のときと同じ）
+        if tool_result.is_a?(Hash) && tool_result[:log].present?
+          Array(tool_result[:log]).each { |entry| messages << { role: "tool", content: entry.to_s, raw: true } }
+          return
+        end
+
         case fc[:name]
-        when "talk_to_pet"
-          pet_name = character.pet_name || "ペット"
-          messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{pet_name}" }
-          pet_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
-          messages << { role: "tool", content: pet_response, participant: pet_name }
         when "talk_to_reading_companion"
           companion_name = Reading::ReadingCompanion::NAME
           messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{companion_name}" }
           companion_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
           messages << { role: "tool", content: companion_response, participant: companion_name }
-        when "adopt_pet"
-          msg = tool_result.is_a?(Hash) ? tool_result[:message].to_s : tool_result.to_s
-          messages << { role: "tool", content: "[相棒を迎え入れた] #{msg}", participant: "system" }
         when "add_schedule"
           time = tool_result.is_a?(Hash) ? tool_result[:scheduled_at] : ""
           purpose = tool_result.is_a?(Hash) ? tool_result[:purpose] : ""

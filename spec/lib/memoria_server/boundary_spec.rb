@@ -46,7 +46,6 @@ RSpec.describe "memoria 本体の境界" do
 
   let(:known) do
     {
-      "app/models/character.rb" => %w[Companion],
       "app/models/user.rb" => %w[MemoriaCore],
     }
   end

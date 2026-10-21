@@ -8,7 +8,7 @@
 | --- | --- |
 | 会話（`ChatSession#send_message`。Discord bot、`/api/chats`） | claude -p（`CLAUDE_CLI_MODEL`。込み入った会話では `CLAUDE_CLI_DEEP_MODEL`） |
 | 思考ループと予定の実行（`Thinking::Thinker`） | claude -p（`CLAUDE_CLI_MODEL`） |
-| ツールを使わない生成（`LlmClient#generate`）: 振り返り（SN）、タグ付け、睡眠フェーズ、ペット・読書伴走者の返答、読書の前処理 | claude -p（`CLAUDE_CLI_LIGHT_MODEL`） |
+| ツールを使わない生成（`LlmClient#generate`）: 振り返り（SN）、タグ付け、睡眠フェーズ、読書伴走者の返答、読書の前処理 | claude -p（`CLAUDE_CLI_LIGHT_MODEL`） |
 | Web検索 | Claude Code の WebSearch・WebFetch（会話と思考ループの両方で使える） |
 | 埋め込み、音声の書き起こし | Gemini のまま（Claude に同じ機能がないため） |
 | ストリーミングの会話（OpenAI互換API。デバイスからの会話） | Gemini のまま |
@@ -21,7 +21,7 @@
 MEMORIA_AGENT_BACKEND=claude_cli
 CLAUDE_CLI_MODEL=sonnet         # 会話と思考ループ（既定: sonnet）
 CLAUDE_CLI_DEEP_MODEL=opus      # 込み入った会話で切り替えるモデル（既定: opus）
-CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りやペットの返答などの軽い作業（既定: haiku）
+CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りなどの軽い作業（既定: haiku）
 # CLAUDE_CLI_COMMAND=claude     # claude コマンドのパス
 # CLAUDE_CLI_TIMEOUT=600        # 1回の実行の上限（秒）
 # CLAUDE_CLI_MAX_TURNS=20       # 1回の実行でのツール呼び出しの往復の上限

@@ -134,7 +134,7 @@ class ChatSession
           tool_result[:log].each { |entry| @chat_logger.log_ai_message(entry) }
         end
 
-        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log) : tool_result
+        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log, :participant) : tool_result
         { name: fc[:name], response: api_response }
       end
 
@@ -196,7 +196,7 @@ class ChatSession
           tool_result[:log].each { |entry| @chat_logger.log_ai_message(entry) }
         end
 
-        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log) : tool_result
+        api_response = tool_result.is_a?(Hash) ? tool_result.except(:log, :participant) : tool_result
         { name: fc[:name], response: api_response }
       end
 

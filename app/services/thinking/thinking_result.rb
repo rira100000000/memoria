@@ -18,6 +18,8 @@ module Thinking
     # 全メッセージをFL用のテキストに変換
     def to_conversation_text
       all_messages.map { |m|
+        next m[:content] if m[:raw]  # プラグインが話し手まで書いた文
+
         role = m[:participant] || (m[:role] == "user" ? "System" : "AI")
         "#{role}: #{m[:content]}"
       }.join("\n\n")

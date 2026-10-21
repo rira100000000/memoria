@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe Thinking::Thinker, "with the claude -p backend" do
   let(:vault_root) { Dir.mktmpdir }
-  let(:character) { create(:character, name: "アオイ", pet_config: { "name" => "ピコ", "appearance" => "青い鳥" }) }
+  let(:character) { create(:character, name: "アオイ") }
   let(:core) { MemoriaCore::Core.new(character.vault_path) }
   let(:llm_client) { instance_double(LlmClient, embedding_available?: false) }
   let(:runner) { instance_double(ClaudeCli::Runner) }
@@ -29,15 +29,18 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
   end
 
   it "thinks with claude -p and builds the same result as with Gemini" do
-    events = [{ name: "talk_to_pet", args: { "message" => "おはよう" }, result: { response: "ぴよ！" } }]
+    # プラグインのツールは、会話ログに残す文（log）と話し相手（participant）を返せる
+    events = [{ name: "talk_to_pet", args: { "message" => "おはよう" },
+      result: { response: "ぴよ！", participant: "ピコ", log: ["アオイ → ピコ: おはよう", "ピコ: ぴよ！"] } }]
     allow(runner).to receive(:run).and_return(ClaudeCli::Runner::Result.new(text: final_text, tool_events: events, model: "sonnet"))
 
     result = think
 
     expect(result.summary).to eq("ピコと話した")
     expect(result.share_message).to eq("おはよう")
-    expect(result.participants).to eq([:self, :pet])
-    expect(result.all_messages.map { |m| m[:content] }).to eq(["おはよう", "ぴよ！", final_text])
+    expect(result.participants).to eq([:self, "ピコ"])
+    expect(result.all_messages.map { |m| m[:content] }).to eq(["アオイ → ピコ: おはよう", "ピコ: ぴよ！", final_text])
+    expect(result.to_conversation_text).to start_with("アオイ → ピコ: おはよう\n\nピコ: ぴよ！")
     expect(runner).to have_received(:run).with(hash_including(scene: :thinking, model: "sonnet", trigger_type: "thinking_loop",
       prompt: a_string_including("今の状況")))
   end

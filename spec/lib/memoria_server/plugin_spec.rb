@@ -125,6 +125,23 @@ RSpec.describe MemoriaServer::Plugin do
     end
   end
 
+  describe "#settings" do
+    let(:plugin) { test_plugin_class.new }
+
+    it "keeps each plugin's settings for the character" do
+      character.update!(plugin_settings: { "other" => { "x" => 1 } })
+
+      plugin.save_settings(character, { "name" => "ルル" })
+
+      expect(plugin.settings(character.reload)).to eq({ "name" => "ルル" })
+      expect(character.plugin_settings["other"]).to eq({ "x" => 1 })
+    end
+
+    it "is empty before saving" do
+      expect(plugin.settings(character)).to eq({})
+    end
+  end
+
   describe MemoriaServer::Plugins::Schedule do
     subject(:plugin) { described_class.new }
 

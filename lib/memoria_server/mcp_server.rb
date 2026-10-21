@@ -73,9 +73,9 @@ module MemoriaServer
 
       record_event(name, args, tool_result)
 
-      # :log は会話ログ用。LLM には渡さない（Gemini の場合と同じ）
+      # :log と :participant は会話ログ用。LLM には渡さない（Gemini の場合と同じ）
       {
-        content: [{ type: "text", text: JSON.generate(tool_result.except(:log)) }],
+        content: [{ type: "text", text: JSON.generate(tool_result.except(:log, :participant)) }],
         isError: tool_result.key?(:error),
       }
     end

@@ -59,6 +59,16 @@ module MemoriaServer
 
     # --- プラグインから使える補助 ---
 
+    # このプラグインがキャラクターごとに持つ設定（Character#plugin_settings の、プラグインの name の欄）
+    # @return [Hash]
+    def settings(character)
+      character.plugin_settings.to_h.fetch(name.to_s, {}).to_h
+    end
+
+    def save_settings(character, values)
+      character.update!(plugin_settings: character.plugin_settings.to_h.merge(name.to_s => values))
+    end
+
     # 連絡手段（Discord等）にそのまま送る。システムからのお知らせ向け
     def notify(character, text)
       ::MessageDispatcher.dispatch(character, text)
