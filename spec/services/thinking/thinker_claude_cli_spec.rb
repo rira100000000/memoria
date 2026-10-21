@@ -4,7 +4,7 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
   let(:vault_root) { Dir.mktmpdir }
   let(:character) { create(:character, name: "アオイ", pet_config: { "name" => "ピコ", "appearance" => "青い鳥" }) }
   let(:core) { MemoriaCore::Core.new(character.vault_path) }
-  let(:llm_client) { instance_double(LlmClient) }
+  let(:llm_client) { instance_double(LlmClient, embedding_available?: false) }
   let(:runner) { instance_double(ClaudeCli::Runner) }
   let(:final_text) { "考えた。\n```json\n{\"summary\": \"ピコと話した\", \"share_message\": \"おはよう\"}\n```" }
 
@@ -40,6 +40,27 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
     expect(result.all_messages.map { |m| m[:content] }).to eq(["おはよう", "ぴよ！", final_text])
     expect(runner).to have_received(:run).with(hash_including(scene: :thinking, model: "sonnet", trigger_type: "thinking_loop",
       prompt: a_string_including("今の状況")))
+  end
+
+  it "recalls memories from the current situation, as in a chat" do
+    retriever = instance_double(MemoriaCore::ContextRetriever)
+    allow(MemoriaCore::EmbeddingStore).to receive(:new).and_return(instance_double(MemoriaCore::EmbeddingStore, initialize!: nil))
+    allow(MemoriaCore::ContextRetriever).to receive(:new).and_return(retriever)
+    allow(retriever).to receive(:retrieve).with("今の状況").and_return({ llm_context_prompt: "ピコと出会った日のこと" })
+    allow(ProspectiveMemory).to receive(:scan).and_return("- 本を読む")
+    allow(runner).to receive(:run).and_return(ClaudeCli::Runner::Result.new(text: final_text, tool_events: [], model: "sonnet"))
+
+    think
+
+    expect(runner).to have_received(:run).with(hash_including(
+      system_prompt: a_string_including("ピコと出会った日のこと").and(a_string_including("- 本を読む"))))
+  end
+
+  it "still thinks when recalling memories fails" do
+    allow(MemoriaCore::EmbeddingStore).to receive(:new).and_raise(RuntimeError, "no index")
+    allow(runner).to receive(:run).and_return(ClaudeCli::Runner::Result.new(text: final_text, tool_events: [], model: "sonnet"))
+
+    expect(think.summary).to eq("ピコと話した")
   end
 
   it "leaves web search to Claude Code instead of the Gemini tool" do

@@ -52,13 +52,14 @@ module Thinking
       plugin_segments = MemoriaServer::Plugin.prompt_segments(character, scene: :thinking)
       prompt += "\n\n" + plugin_segments if plugin_segments.present?
 
-      # システムインストラクション
+      # システムインストラクション。会話と同じく、今の状況（起きた理由・直近の会話・前回の活動）から
+      # 記憶を想起して渡す。記憶がないと、起きるたびに別人のように振る舞う
       prompt_builder = PromptBuilder.new(character)
       system_instruction = prompt_builder.build(context: {
-        retrieved_context: "",
+        retrieved_context: recall_memories_for(snapshot, core: core, llm_client: llm_client) || "",
         narrative_summary: "",
         behavior_principles: load_behavior_principles(core),
-        prospective_memory: "",
+        prospective_memory: ProspectiveMemory.scan(core.vault),
       }, channel: "autonomous thinking")
 
       # claude -p が使えないときは ClaudeCli::Error が上がる（Gemini で代わりに動くことはしない）
