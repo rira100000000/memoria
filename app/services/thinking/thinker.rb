@@ -3,23 +3,24 @@ module Thinking
   # 「何がしたい？次はいつ起こしてほしい？」とだけ聞く
   class Thinker
     BASE_PROMPT = <<~PROMPT
-      これはあなたの自由な時間です。
+      あなたは今、会話の外で起きています。
       以下はあなたの今の状況です。
 
-      何かしたいことがあれば、利用可能なツールを使って行動できます。
-      何もしたくなければ、それでも構いません。
+      やることや、やりたいことがあれば、利用可能なツールを使って行動できます。
+      何もしなくても構いません。
 
       %{pet_section}
 
       ## スケジュール
-      次にいつ起きたいか、add_scheduleツールで予定を入れてください。
+      次にいつ起きたいか、add_scheduleツールで予定を入れられます。
       複数の予定を入れることもできます（例: 朝の挨拶と夜のリマインダー）。
       list_schedulesで今後の予定を確認、cancel_scheduleでキャンセルできます。
-      特に理由がなければ長めの間隔で構いません。
       毎日・毎週など繰り返したい予定は repeat にcron式で指定できます。
-      あなたが自分で入れた繰り返しの予定は、マスターが承認するまで動きません。
+      %{approval_note}
 
       ## 終わったら
+      下のJSONを書くと、この回は終わります。やると決めたことは、書く前にこの回の中で済ませてください。
+      この回で終わらないことは、続きの予定を入れるか、任せられるツールがあれば任せてください。
       以下のJSONで教えてください:
       ```json
       {
@@ -243,7 +244,12 @@ module Thinking
         else
           pet_section = PET_SECTION_WITHOUT_PET
         end
-        format(BASE_PROMPT, pet_section: pet_section)
+        approval_note = if MemoriaServer::Plugin.schedule_policy(character)[:self_recurring_needs_approval]
+          "あなたが自分で入れた繰り返しの予定は、マスターが承認するまで動きません。"
+        else
+          ""
+        end
+        format(BASE_PROMPT, pet_section: pet_section, approval_note: approval_note)
       end
 
       def build_tools(character)

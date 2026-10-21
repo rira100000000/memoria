@@ -43,6 +43,20 @@ module MemoriaServer
       nil
     end
 
+    # キャラクターを決まった時刻に起こす、定期の起床の宣言。
+    # memoria はジョブのプロセスの起動時に、宣言を予定（ScheduledWakeup）にそろえる（MemoriaServer::Routines）。
+    # key で同じ予定を見分けるので、中身を変えても予定は増えない。宣言をやめた予定は取り消される。
+    # @return [Array<Hash>] { key:, recurrence: (cron式), purpose:, action: (nil / "share"), remember: (Boolean) } の配列
+    def routines(_character)
+      []
+    end
+
+    # 予定の決まりの上書き。キーは MemoriaServer::Plugin::SCHEDULE_POLICY_DEFAULTS を参照
+    # @return [Hash]
+    def schedule_policy(_character)
+      {}
+    end
+
     # --- プラグインから使える補助 ---
 
     # 連絡手段（Discord等）にそのまま送る。システムからのお知らせ向け
@@ -70,6 +84,12 @@ module MemoriaServer
 
     # サブクラスから MyPlugin.register(...) と呼んでも同じ登録先を使うよう、定数で持つ
     REGISTRY = {}
+
+    # 予定の決まりの既定値
+    #   self_recurring_needs_approval: キャラが自分で入れた繰り返しの予定を、ユーザーの承認まで動かさない
+    SCHEDULE_POLICY_DEFAULTS = {
+      self_recurring_needs_approval: true,
+    }.freeze
 
     class << self
       def register(plugin)
@@ -112,6 +132,19 @@ module MemoriaServer
       rescue => e
         Rails.logger.error("[MemoriaServer::Plugin] #{plugin&.name}##{tool_name} failed: #{e.class}: #{e.message}")
         { error: "ツールの実行に失敗しました（#{e.class}: #{e.message.to_s.truncate(200)}）" }
+      end
+
+      # @return [Array<Array(Plugin, Hash)>] [プラグイン, 定期の起床の宣言] の組
+      def routines_for(character)
+        all.select { |p| p.enabled_for?(character) }.flat_map { |plugin|
+          plugin.routines(character).map { |routine| [plugin, routine] }
+        }
+      end
+
+      # 既定値に、有効なプラグインの上書きを順に重ねる
+      def schedule_policy(character)
+        all.select { |p| p.enabled_for?(character) }
+          .reduce(SCHEDULE_POLICY_DEFAULTS) { |policy, p| policy.merge(p.schedule_policy(character).to_h.symbolize_keys.slice(*SCHEDULE_POLICY_DEFAULTS.keys)) }
       end
 
       def prompt_segments(character, scene:)

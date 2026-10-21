@@ -84,6 +84,21 @@ RSpec.describe Thinking::ScheduleTools do
       expect(MessageDispatcher).to have_received(:dispatch).with(character, include("提案"))
     end
 
+    it "runs the character's own recurring wakeups at once when a plugin lifts the approval" do
+      plugin = Class.new(MemoriaServer::Plugin) {
+        def name = :policy_test_xyz
+        def schedule_policy(_character) = { self_recurring_needs_approval: false }
+      }.new
+      MemoriaServer::Plugin.register(plugin)
+
+      described_class.add(character, time_text: nil, repeat: "0 22 * * *", purpose: "日記", autonomous: true)
+
+      expect(character.scheduled_wakeups.last.status).to eq("pending")
+      expect(ThinkingLoopJob).to have_been_enqueued
+    ensure
+      MemoriaServer::Plugin.unregister(:policy_test_xyz)
+    end
+
     it "rejects intervals shorter than an hour" do
       result = described_class.add(character, time_text: nil, repeat: "*/10 * * * *", purpose: "連打")
       expect(result[:error]).to include("短すぎ")

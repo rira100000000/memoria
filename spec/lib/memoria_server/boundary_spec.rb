@@ -23,6 +23,8 @@ RSpec.describe "memoria 本体の境界" do
       lib/memoria_server/audio.rb
       lib/memoria_server/audio/*.rb
       lib/memoria_server/plugin.rb
+      lib/memoria_server/routines.rb
+      bin/jobs
       app/controllers/application_controller.rb
       app/controllers/api/v1/*.rb
       app/models/{application_record,device,device_key,presence,transfer,channel_binding,user,admin_key,character,scheduled_wakeup}.rb

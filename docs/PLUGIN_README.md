@@ -97,6 +97,37 @@ plugin.wake(character, purpose: "頼まれていた作業の結果をマスタ�
 
 `wake` は「伝える（share）」予定として入るので、キャラクターが伝言を書かなかった場合や、失敗した場合も必ずマスターに届く。システムからのお知らせをそのまま送りたいときは `notify(character, text)` を使う。
 
+### 定期の起床
+
+キャラクターを決まった時刻に起こしたいときは `routines` で宣言する。memoria はジョブのプロセス（`bin/jobs`）の起動時に、宣言を予定にそろえる。`key` で同じ予定を見分けるので、目的の文を変えても予定は増えない（時刻を変えたときは次の回を取り直す）。宣言から消した予定は取り消される。
+
+```ruby
+def routines(character)
+  [
+    { key: "morning", recurrence: "0 7 * * *", action: "share", remember: false,
+      purpose: "朝の見回り。今日の予定と期限の近いタスクを確かめて伝える。" },
+  ]
+end
+```
+
+- `action: "share"` の予定は、キャラクターが伝言を書かなくても必ず何か届く。省略すると、伝えたいことがあるときだけ届く
+- `remember: true` にすると、起きて考えたことを記憶に残す
+- 失敗やスキップは必ず連絡手段に知らせる
+
+### 予定の決まりの上書き
+
+`schedule_policy` で、キャラクターの予定の決まりを変えられる。
+
+| キー | 既定 | 意味 |
+|---|---|---|
+| `self_recurring_needs_approval` | `true` | キャラクターが自分で入れた繰り返しの予定を、マスターが承認するまで動かさない |
+
+```ruby
+def schedule_policy(character)
+  { self_recurring_needs_approval: false }
+end
+```
+
 ## 組み込みのプラグイン
 
 | name | 内容 |

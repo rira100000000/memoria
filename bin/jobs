@@ -3,4 +3,12 @@
 require_relative "../config/environment"
 require "solid_queue/cli"
 
+# プラグインが宣言した定期の起床を予定にそろえる（予定を実行するのはこのプロセス）
+begin
+  report = MemoriaServer::Routines.sync!
+  Rails.logger.info("[bin/jobs] routines synced: #{report}")
+rescue => e
+  Rails.logger.error("[bin/jobs] routines sync failed: #{e.class}: #{e.message}")
+end
+
 SolidQueue::Cli.start(ARGV)

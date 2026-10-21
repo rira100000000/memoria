@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_14_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_21_120000) do
   create_table "admin_keys", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "key_hash", null: false
@@ -158,9 +158,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_14_130000) do
     t.string "purpose", null: false
     t.string "recurrence"
     t.boolean "remember", default: true, null: false
+    t.string "routine_key"
     t.datetime "scheduled_at", null: false
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
+    t.index ["character_id", "routine_key"], name: "index_scheduled_wakeups_on_character_id_and_routine_key", unique: true, where: "routine_key IS NOT NULL"
     t.index ["character_id", "status", "scheduled_at"], name: "idx_on_character_id_status_scheduled_at_c61cfa83a8"
     t.index ["character_id"], name: "index_scheduled_wakeups_on_character_id"
   end

@@ -145,13 +145,14 @@ module Thinking
         return { error: "同じ繰り返しの予定が既にあります: #{cron.original}" }
       end
 
+      # キャラが自分で入れた繰り返しは、ずっと予算を使い続けるので既定では承認制にする（プラグインで外せる）
+      needs_approval = autonomous && MemoriaServer::Plugin.schedule_policy(character)[:self_recurring_needs_approval]
       wakeup = character.scheduled_wakeups.create!(
         scheduled_at: cron.next_time(Time.current).to_t,
         recurrence: cron.original,
         purpose: purpose,
         action: action,
-        # キャラが自分で入れた繰り返しは、ずっと予算を使い続けるので承認制にする
-        status: autonomous ? "proposed" : "pending",
+        status: needs_approval ? "proposed" : "pending",
         origin: autonomous ? "self" : "user",
         remember: remember.nil? ? false : remember
       )
