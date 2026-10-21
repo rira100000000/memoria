@@ -95,7 +95,7 @@ RSpec.describe ChatSession, "with the claude -p backend" do
   it "stops continuing after a few runs" do
     allow(runner).to receive(:run).and_return(structured_reply("まだやる", "continue", "続き"))
 
-    session.send_message("やって", on_progress: ->(_) {})
+    session.send_message("やって", on_progress: ->(_) { })
 
     expect(runner).to have_received(:run).exactly(ChatSession::MAX_CONTINUATIONS + 1).times
   end
