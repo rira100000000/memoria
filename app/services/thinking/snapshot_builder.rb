@@ -15,13 +15,13 @@ module Thinking
       lines << "現在時刻: #{now.strftime('%Y-%m-%d %H:%M')}（#{period}）"
 
       # ユーザーとの会話状況
-      lines << "前回マスターと話した時間: #{core.last_user_conversation_age}"
-      lines << "前回マスターと話した話題: #{core.last_user_conversation_topic}"
+      lines << "前回ユーザーと話した時間: #{core.last_user_conversation_age}"
+      lines << "前回ユーザーと話した話題: #{core.last_user_conversation_topic}"
 
       # 続いている会話（まだ振り返りになっていないので、上の「前回の話題」には入っていない）
       recent = recent_conversation(character)
       if recent.any?
-        lines << "いま続いているマスターとの会話（直近#{recent.size}件、古い順）:"
+        lines << "いま続いているユーザーとの会話（直近#{recent.size}件、古い順）:"
         recent.each { |line| lines << "  #{line}" }
       end
 
@@ -73,7 +73,7 @@ module Thinking
       return [] unless record
 
       Array(record.messages).last(RECENT_MESSAGES).map do |m|
-        speaker = m["role"] == "user" ? "マスター" : character.name
+        speaker = m["role"] == "user" ? "ユーザー" : character.name
         "#{speaker}: #{m["content"].to_s.squish.truncate(RECENT_MESSAGE_CHARS, omission: "…")}"
       end
     end

@@ -6,7 +6,7 @@ module MemoriaServer
   # 秘書・作業依頼のような個人的な用途は、リポジトリの外に置いたプラグインで実現する。
   #
   # 場面（scene）は2つ：
-  #   - :chat     マスターとの会話中（マスターの依頼に応えて動く）
+  #   - :chat     ユーザーとの会話中（ユーザーの依頼に応えて動く）
   #   - :thinking 思考ループ（キャラが自分の意思で動く）
   # 危ないツールは :chat だけに出す、のように場面ごとに出し分けられる。
   #
@@ -103,7 +103,7 @@ module MemoriaServer
       ::MessageDispatcher.dispatch(character, text)
     end
 
-    # キャラクターを今すぐ起こし、目的に沿って考えさせてからマスターに伝えさせる。
+    # キャラクターを今すぐ起こし、目的に沿って考えさせてからユーザーに伝えさせる。
     # 長い作業が終わったときに、キャラ自身の言葉で報告させる用途。
     # 失敗しても予定の仕組みが通知する（action: "share"）。
     def wake(character, purpose:, remember: false)

@@ -20,10 +20,13 @@ if config_path && File.exist?(config_path)
   (config["characters"] || {}).each do |key, char_config|
     char = user.characters.find_or_create_by!(name: char_config["name"]) do |c|
       c.system_prompt = char_config["system_prompt"]
+      # 記憶の置き場所の名前。既存の vault を使うときに指定する（省略すると作るときに決まる）
+      c.vault_dir_name = char_config["vault_dir_name"] if char_config["vault_dir_name"]
     end
 
-    char.update!(pet_config: char_config["pet_config"]) if char_config["pet_config"]
     char.update!(thinking_loop_enabled: char_config["thinking_loop_enabled"]) if char_config.key?("thinking_loop_enabled")
+    # プラグインごとの設定（プラグインの name をキーにした Hash）
+    char.update!(plugin_settings: char_config["plugin_settings"]) if char_config["plugin_settings"]
 
     puts "Character: #{char.name} (vault: #{char.vault_path})"
 
@@ -54,25 +57,5 @@ else
     ChannelBinding.find_or_create_by!(platform: "discord", channel_id: ENV["DISCORD_CHANNEL_ID"]) do |b|
       b.character = char
     end
-  end
-end
-
-# 読書が有効なキャラクターに読書伴走者を紐付ける
-if defined?(user) && user
-  user.characters.where(reading_enabled: true).each do |reader|
-    next if reader.reading_companion.present?
-
-    companion = user.characters.create!(
-      name: Reading::ReadingCompanion::NAME,
-      vault_dir_name: "tote_#{reader.vault_dir_name}",
-      system_prompt: Reading::ReadingCompanion::SYSTEM_PROMPT,
-      thinking_loop_enabled: false,
-      reading_enabled: false
-    )
-    reader.update!(reading_companion: companion)
-
-    vault = MemoriaCore::VaultManager.new(companion.vault_path)
-    vault.ensure_structure!
-    puts "Reading Companion: #{companion.name} for #{reader.name} (vault: #{companion.vault_path})"
   end
 end

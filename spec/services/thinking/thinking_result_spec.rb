@@ -6,13 +6,13 @@ RSpec.describe Thinking::ThinkingResult do
       messages = [{
         role: "model",
         content: '```json
-{"summary": "テスト完了", "share_message": "マスターに報告"}
+{"summary": "テスト完了", "share_message": "ユーザーに報告"}
 ```',
       }]
 
       result = described_class.parse(messages)
       expect(result.summary).to eq("テスト完了")
-      expect(result.share_message).to eq("マスターに報告")
+      expect(result.share_message).to eq("ユーザーに報告")
       expect(result.wants_to_share?).to be true
     end
 

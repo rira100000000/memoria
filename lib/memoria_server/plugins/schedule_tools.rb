@@ -22,8 +22,8 @@ module MemoriaServer
               properties: {
                 time: { type: "STRING", description: "単発の予定のとき、いつ（例: '3時間後', '明日の朝8時', '21:00'）" },
                 repeat: { type: "STRING", description: "繰り返しの予定のとき、cron式（例: '0 7 * * *'=毎朝7時, '0 9 * * 1'=毎週月曜9時）。時刻は日本時間。最短間隔は1時間" },
-                purpose: { type: "STRING", description: "なぜ起きるか（例: 'マスターに朝の挨拶', '作業リマインダー'）" },
-                action: { type: "STRING", description: "何をするか（'share'=マスターに必ず伝える, 'think'=自由に考える, 省略=自由）" },
+                purpose: { type: "STRING", description: "なぜ起きるか（例: 'ユーザーに朝の挨拶', '作業リマインダー'）" },
+                action: { type: "STRING", description: "何をするか（'share'=ユーザーに必ず伝える, 'think'=自由に考える, 省略=自由）" },
                 remember: { type: "BOOLEAN", description: "実行したことを記憶に残すか（省略時: 単発は残す、繰り返しは残さない）" },
               },
               required: ["purpose"],
@@ -46,7 +46,7 @@ module MemoriaServer
         unless autonomous
           fns << {
             name: "approve_schedule",
-            description: "承認待ちになっている繰り返しの予定を、マスターの承認を受けて有効にする。マスターが承認を明言したときだけ使う",
+            description: "承認待ちになっている繰り返しの予定を、ユーザーの承認を受けて有効にする。ユーザーが承認を明言したときだけ使う",
             parameters: {
               type: "OBJECT",
               properties: {
@@ -71,7 +71,7 @@ module MemoriaServer
         when "cancel_schedule"
           cancel(character, args["schedule_id"], only_next: args["only_next"])
         when "approve_schedule"
-          return { error: "繰り返しの予定はマスターの承認が必要です。自分では承認できません" } if autonomous
+          return { error: "繰り返しの予定はユーザーの承認が必要です。自分では承認できません" } if autonomous
 
           approve(character, args["schedule_id"])
         end
@@ -172,7 +172,7 @@ module MemoriaServer
           next_at: wakeup.scheduled_at.in_time_zone("Asia/Tokyo").strftime("%Y-%m-%d %H:%M"),
           recurrence: wakeup.recurrence,
           purpose: purpose,
-          status: wakeup.status == "proposed" ? "マスターの承認待ち（承認されるまで動きません）" : "有効",
+          status: wakeup.status == "proposed" ? "ユーザーの承認待ち（承認されるまで動きません）" : "有効",
         }
       end
 

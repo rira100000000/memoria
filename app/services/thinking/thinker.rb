@@ -23,7 +23,7 @@ module Thinking
       ```json
       {
         "summary": "今回やったことの簡単なまとめ（1〜3行）",
-        "share_message": "今すぐマスターに伝えたいこと（なければnull）"
+        "share_message": "今すぐユーザーに伝えたいこと（なければnull）"
       }
       ```
     PROMPT
@@ -142,7 +142,7 @@ module Thinking
 
       def build_prompt(character)
         approval_note = if MemoriaServer::Plugin.schedule_policy(character)[:self_recurring_needs_approval]
-          "あなたが自分で入れた繰り返しの予定は、マスターが承認するまで動きません。"
+          "あなたが自分で入れた繰り返しの予定は、ユーザーが承認するまで動きません。"
         else
           ""
         end

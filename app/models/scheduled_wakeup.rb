@@ -1,5 +1,5 @@
 class ScheduledWakeup < ApplicationRecord
-  # proposed: キャラが自分で入れた繰り返しの予定。マスターが承認するまで動かない
+  # proposed: キャラが自分で入れた繰り返しの予定。ユーザーが承認するまで動かない
   STATUSES = %w[pending proposed executed cancelled].freeze
   ORIGINS = %w[user self].freeze
   TIME_ZONE = "Asia/Tokyo"
@@ -55,7 +55,7 @@ class ScheduledWakeup < ApplicationRecord
   end
 
   # 失敗・スキップを必ず知らせるべき予定か
-  # マスターに頼まれた予定と「伝える」予定は、黙って消えてはいけない
+  # ユーザーに頼まれた予定と「伝える」予定は、黙って消えてはいけない
   def notify_on_failure?
     origin == "user" || action == "share"
   end

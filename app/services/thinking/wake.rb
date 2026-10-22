@@ -51,7 +51,7 @@ module Thinking
       text << "\n予定していた行動: #{@wakeup[:action]}" if @wakeup[:action].present?
       text << "\nこれは繰り返しの予定です（#{@wakeup[:recurrence]}）。" if @wakeup[:recurrence].present?
       if @wakeup[:action] == "share"
-        text << "\nこの予定ではマスターに必ず伝えることになっています。share_message に伝える内容を書いてください。"
+        text << "\nこの予定ではユーザーに必ず伝えることになっています。share_message に伝える内容を書いてください。"
       end
       due_at = @wakeup[:due_at]
       late = due_at ? Time.current - due_at : 0

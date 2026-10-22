@@ -31,8 +31,8 @@ RSpec.describe Thinking::SnapshotBuilder do
 
     snapshot = described_class.build(core, character, health)
 
-    expect(snapshot).to include("いま続いているマスターとの会話（直近10件、古い順）:")
-    expect(snapshot).to include("マスター: 発言3", "#{character.name}: 発言4")
+    expect(snapshot).to include("いま続いているユーザーとの会話（直近10件、古い順）:")
+    expect(snapshot).to include("ユーザー: 発言3", "#{character.name}: 発言4")
     expect(snapshot).not_to include("発言2")
     expect(snapshot).to include("#{character.name}: #{"長い" * 149}長…")
   end

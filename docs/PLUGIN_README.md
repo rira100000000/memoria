@@ -58,7 +58,7 @@ class WeatherPlugin < MemoriaServer::Plugin
 
   # システムプロンプトの末尾に足す指示（省略可）
   def prompt_segment(character, scene:)
-    "マスターに天気を聞かれたら get_weather で調べてから答える。"
+    "ユーザーに天気を聞かれたら get_weather で調べてから答える。"
   end
 end
 
@@ -69,7 +69,7 @@ MemoriaServer::Plugin.register(WeatherPlugin.new)
 
 | scene | いつ | 注意 |
 |---|---|---|
-| `:chat` | マスターとの会話中 | マスターの依頼に応えて動く場面 |
+| `:chat` | ユーザーとの会話中 | ユーザーの依頼に応えて動く場面 |
 | `:thinking` | 思考ループ | キャラが自分の意思で動く場面。費用や外部への影響が大きいツールは出さない |
 
 `:chat` では `platform` に会話の経路が入る（Discord Bot からは `:discord`。それ以外の経路では `nil`）。
@@ -82,7 +82,7 @@ MemoriaServer::Plugin.register(WeatherPlugin.new)
 
 ### 長い作業の報告
 
-時間のかかる作業はジョブとして裏で動かし、終わったら `wake` でキャラクターを起こす。キャラクターが自分の言葉でマスターに伝える。
+時間のかかる作業はジョブとして裏で動かし、終わったら `wake` でキャラクターを起こす。キャラクターが自分の言葉でユーザーに伝える。
 
 ```ruby
 def execute(tool_name, args, character:, scene:)
@@ -92,10 +92,10 @@ end
 
 # LongTaskJob の最後で
 plugin = MemoriaServer::Plugin.find(:my_plugin)
-plugin.wake(character, purpose: "頼まれていた作業の結果をマスターに伝える: #{summary}")
+plugin.wake(character, purpose: "頼まれていた作業の結果をユーザーに伝える: #{summary}")
 ```
 
-`wake` は「伝える（share）」予定として入るので、キャラクターが伝言を書かなかった場合や、失敗した場合も必ずマスターに届く。システムからのお知らせをそのまま送りたいときは `notify(character, text)` を使う。
+`wake` は「伝える（share）」予定として入るので、キャラクターが伝言を書かなかった場合や、失敗した場合も必ずユーザーに届く。システムからのお知らせをそのまま送りたいときは `notify(character, text)` を使う。
 
 ### 記憶と、ほかのキャラクター
 
@@ -136,7 +136,7 @@ end
 
 | キー | 既定 | 意味 |
 |---|---|---|
-| `self_recurring_needs_approval` | `true` | キャラクターが自分で入れた繰り返しの予定を、マスターが承認するまで動かさない |
+| `self_recurring_needs_approval` | `true` | キャラクターが自分で入れた繰り返しの予定を、ユーザーが承認するまで動かさない |
 
 ```ruby
 def schedule_policy(character)

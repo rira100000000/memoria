@@ -63,6 +63,14 @@ RSpec.describe "memoria 本体の境界" do
     expect(added).to be_empty, "memoria 本体から新しく参照している: #{added}"
   end
 
+  it "does not hard-code how a character calls the user" do
+    # 呼び方はキャラの設定（system_prompt）が決める。プロンプトや説明では「ユーザー」と書く
+    files = Dir.glob(root.join("{app,lib,bin,config}/**/*.rb").to_s) + Dir.glob(root.join("bin/*").to_s)
+    hits = files.select { |path| File.file?(path) && File.read(path, encoding: "utf-8").include?("マスター") }
+
+    expect(hits.map { |path| Pathname.new(path).relative_path_from(root).to_s }).to be_empty
+  end
+
   it "lists only references that still exist, so that the list shrinks as the migration goes" do
     refs = references
     stale = known.to_h { |file, consts| [file, consts - refs.fetch(file, [])] }.reject { |_, c| c.empty? }
