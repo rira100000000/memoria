@@ -43,8 +43,7 @@ module Api
 
     def character_params
       params.require(:character).permit(
-        :name, :system_prompt, :thinking_loop_enabled,
-        :reading_enabled, :reading_companion_id, :vault_dir_name
+        :name, :system_prompt, :thinking_loop_enabled, :vault_dir_name
       )
     end
 
@@ -55,8 +54,6 @@ module Api
         system_prompt: c.system_prompt,
         vault_dir_name: c.vault_dir_name,
         thinking_loop_enabled: c.thinking_loop_enabled,
-        reading_enabled: c.reading_enabled,
-        reading_companion_id: c.reading_companion_id,
         created_at: c.created_at,
         updated_at: c.updated_at,
       }

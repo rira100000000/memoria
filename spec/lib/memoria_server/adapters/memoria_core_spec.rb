@@ -64,6 +64,36 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
     end
   end
 
+  describe "#recall" do
+    let(:retriever) { instance_double(MemoriaCore::ContextRetriever) }
+
+    before do
+      allow(MemoriaCore::EmbeddingStore).to receive(:new).and_return(instance_double(MemoriaCore::EmbeddingStore, initialize!: nil))
+      allow(MemoriaCore::ContextRetriever).to receive(:new).and_return(retriever)
+    end
+
+    it "returns the memories related to the query" do
+      allow(retriever).to receive(:retrieve).with("雨の匂い")
+        .and_return({ retrieved_items: [{}], llm_context_prompt: "雨の日の記憶" })
+
+      expect(adapter.recall(character_id: character.id, query: "雨の匂い")).to eq("雨の日の記憶")
+    end
+
+    it "returns nil when nothing is found" do
+      allow(retriever).to receive(:retrieve).and_return({ retrieved_items: [], llm_context_prompt: "見つかりませんでした" })
+
+      expect(adapter.recall(character_id: character.id, query: "なにか")).to be_nil
+    end
+  end
+
+  it "memorizes through MemorizeService" do
+    allow(MemorizeService).to receive(:run).and_return({ full_log_path: "FullLog/x.md" })
+
+    expect(adapter.memorize(character_id: character.id, text: "読んだ", source: "reading", metadata: { work_title: "こころ" })).to be true
+    expect(MemorizeService).to have_received(:run)
+      .with(character, text: "読んだ", source: "reading", metadata: { work_title: "こころ" })
+  end
+
   it "closes the conversation after a while without messages" do
     allow(session).to receive(:use_claude_cli?).and_return(true)
     allow(session).to receive(:send_message).and_return({ response: "うん", usage: nil })

@@ -44,8 +44,6 @@ __pycache__/
 # Ignore node_modules
 /node_modules
 
-# Aozora Bunko data (downloaded via rake aozora:setup)
-/data/aozora/
 
 # Ignore key files for decrypting credentials and more.
 /config/*.key

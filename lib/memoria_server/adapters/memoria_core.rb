@@ -68,6 +68,20 @@ module MemoriaServer
         ::Thinking::Wake.run(Character.find(character_id), wakeup: wakeup)
       end
 
+      def recall(character_id:, query:)
+        return nil if query.to_s.strip.empty?
+
+        core = ::MemoriaCore::Core.new(Character.find(character_id).vault_path)
+        embedding_store = ::MemoriaCore::EmbeddingStore.new(core.vault, ::LlmClient.new)
+        embedding_store.initialize!
+        result = ::MemoriaCore::ContextRetriever.new(core.vault, embedding_store).retrieve(query)
+        result[:retrieved_items].present? ? result[:llm_context_prompt] : nil
+      end
+
+      def memorize(character_id:, text:, source:, metadata: {})
+        ::MemorizeService.run(Character.find(character_id), text: text, source: source, metadata: metadata).present?
+      end
+
       # 送った連絡を会話の履歴に入れる。返事が来たら同じ会話として続く
       def record_outgoing(character_id:, text:)
         ::ChatSession.record_outgoing(Character.find(character_id), text)

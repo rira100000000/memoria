@@ -125,6 +125,37 @@ RSpec.describe MemoriaServer::Plugin do
     end
   end
 
+  describe "#talk_to" do
+    let(:plugin) { test_plugin_class.new }
+    let(:friend) { create(:character, name: "トート") }
+    let(:adapter) { instance_double(MemoriaServer::Adapter) }
+
+    before { allow(MemoriaServer).to receive(:adapter).and_return(adapter) }
+
+    it "asks another character through the adapter and joins the messages" do
+      allow(adapter).to receive(:respond)
+        .and_return([{ delta: "ふむ" }, { message_break: true }, { delta: "いい場面ね" }, { done: true }].each)
+
+      expect(plugin.talk_to(friend, "ここ好き", channel: "読書")).to eq("ふむ\n\nいい場面ね")
+      expect(adapter).to have_received(:respond).with("ここ好き", context: hash_including(
+        character_id: friend.id, channel: "読書", platform: :test_plugin_xyz))
+    end
+  end
+
+  describe "#recall and #memorize" do
+    let(:plugin) { test_plugin_class.new }
+    let(:adapter) { instance_double(MemoriaServer::Adapter, recall: "記憶", memorize: true) }
+
+    before { allow(MemoriaServer).to receive(:adapter).and_return(adapter) }
+
+    it "goes through the adapter" do
+      expect(plugin.recall(character, "雨")).to eq("記憶")
+      expect(plugin.memorize(character, "読んだ", source: "reading", metadata: { work_title: "こころ" })).to be true
+      expect(adapter).to have_received(:memorize)
+        .with(character_id: character.id, text: "読んだ", source: "reading", metadata: { work_title: "こころ" })
+    end
+  end
+
   describe "#settings" do
     let(:plugin) { test_plugin_class.new }
 

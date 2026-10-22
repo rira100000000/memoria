@@ -59,6 +59,35 @@ module MemoriaServer
 
     # --- プラグインから使える補助 ---
 
+    # キャラクターの記憶から、query に関係するものを思い出す（アダプタの recall）
+    # @return [String, nil]
+    def recall(character, query)
+      ::MemoriaServer.adapter.recall(character_id: character.id, query: query)
+    end
+
+    # text をキャラクターの記憶として残す（アダプタの memorize）
+    def memorize(character, text, source:, metadata: {})
+      ::MemoriaServer.adapter.memorize(character_id: character.id, text: text, source: source, metadata: metadata)
+    end
+
+    # 別のキャラクターに話しかけ、返答を受け取る（アダプタの respond）。
+    # 話した内容は、そのキャラクターの会話として、そのキャラクターの記憶に残る
+    # @param channel [String] 会話の場所（例: "読書: 夏目漱石『こころ』"）
+    # @return [String] 返答。区切られたメッセージは空行でつなぐ
+    def talk_to(character, text, channel:)
+      context = { character_id: character.id, character_name: character.name, channel: channel, platform: name.to_sym,
+                  current_input: text, history: [], client_metadata: {}, x_memoria: {} }
+      messages = [+""]
+      ::MemoriaServer.adapter.respond(text, context: context).each do |chunk|
+        if chunk[:delta]
+          messages.last << chunk[:delta]
+        elsif chunk[:message_break]
+          messages << +""
+        end
+      end
+      messages.map(&:strip).reject(&:empty?).join("\n\n")
+    end
+
     # このプラグインがキャラクターごとに持つ設定（Character#plugin_settings の、プラグインの name の欄）
     # @return [Hash]
     def settings(character)

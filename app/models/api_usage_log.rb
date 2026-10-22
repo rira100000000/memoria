@@ -3,7 +3,7 @@ class ApiUsageLog < ApplicationRecord
   belongs_to :character, optional: true
 
   validates :trigger_type, presence: true,
-    inclusion: { in: %w[user_message thinking_loop sleep_phase tag_profiling embedding] }
+    inclusion: { in: %w[user_message thinking_loop sleep_phase tag_profiling embedding memorize] }
   validates :llm_model, presence: true
 
   scope :for_user, ->(user) { where(user: user) }

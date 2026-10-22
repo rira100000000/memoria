@@ -69,41 +69,22 @@ module Thinking
 
       messages = []
       participants = [:self]
-      last_reading_context = nil
-      reading_occurred = false
 
       run.tool_events.each do |event|
         fc = { name: event[:name], args: event[:args] }
-        participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
         participants << event[:result][:participant] if event[:result].is_a?(Hash) && event[:result][:participant].present?
         log_tool_interaction(messages, fc, event[:result], character)
-
-        if (context = reading_context_from(fc, event[:result]))
-          reading_occurred = true
-          last_reading_context = context
-        end
       end
 
       messages << { role: "model", content: run.text, participant: character.name } if run.text.present?
 
-      # 読んだチャンクの読書ノートは最後にまとめて残す（途中の感想との対応は取らない）
-      if last_reading_context
-        save_reading_note(
-          last_reading_context[:progress_id],
-          chunk_text: last_reading_context[:chunk_text],
-          llm_client: llm_client, character: character
-        )
-      end
-
-      ThinkingResult.parse(messages, participants: participants.uniq, reading_occurred: reading_occurred)
+      ThinkingResult.parse(messages, participants: participants.uniq)
     end
 
     def self.run_with_gemini(prompt:, system_instruction:, character:, core:, health:, llm_client:)
       messages = []       # FL用の人間が読めるログ
       participants = [:self]
       tools = tool_definitions(character)
-      reading_occurred = false
-      last_reading_context = nil  # { progress_id:, chunk_text: }
 
       # Gemini API用メッセージ
       gemini_messages = [{ role: "user", parts: [{ text: prompt }] }]
@@ -116,19 +97,7 @@ module Thinking
         )
 
         # テキスト応答があれば記録
-        if result[:text].present?
-          messages << { role: "model", content: result[:text], participant: character.name }
-
-          # 直前にread_aozoraでチャンクを読んでいた場合、読書ノートを蓄積
-          if last_reading_context
-            save_reading_note(
-              last_reading_context[:progress_id],
-              chunk_text: last_reading_context[:chunk_text],
-              llm_client: llm_client, character: character
-            )
-            last_reading_context = nil
-          end
-        end
+        messages << { role: "model", content: result[:text], participant: character.name } if result[:text].present?
 
         # Function Callがなければ完了
         break if result[:function_calls].empty?
@@ -137,26 +106,13 @@ module Thinking
         gemini_messages << { role: "model", parts: result[:raw_parts] }
 
         # ツール実行
-        has_non_reading_tool = false
         function_responses = result[:function_calls].map do |fc|
           tool_result = call_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
-          participants << :reading_companion if fc[:name] == "talk_to_reading_companion"
           participants << tool_result[:participant] if tool_result.is_a?(Hash) && tool_result[:participant].present?
           log_tool_interaction(messages, fc, tool_result, character)
 
-          # 読書チャンク処理
-          if (context = reading_context_from(fc, tool_result))
-            reading_occurred = true
-            last_reading_context = context
-          elsif fc[:name] != "read_aozora"
-            has_non_reading_tool = true
-          end
-
           { name: fc[:name], response: tool_result.except(:log, :participant) }
         end
-
-        # read_aozora以外のツールが呼ばれた場合のみリセット（読書→感想のチャンスを維持）
-        last_reading_context = nil if has_non_reading_tool && !reading_occurred
 
         # ツール結果をgemini_messagesに追加
         gemini_messages << {
@@ -167,16 +123,7 @@ module Thinking
         }
       end
 
-      # ループ終了時にまだ蓄積されていない読書コンテキストがあれば読書ノートを保存
-      if last_reading_context
-        save_reading_note(
-          last_reading_context[:progress_id],
-          chunk_text: last_reading_context[:chunk_text],
-          llm_client: llm_client, character: character
-        )
-      end
-
-      ThinkingResult.parse(messages, participants: participants.uniq, reading_occurred: reading_occurred)
+      ThinkingResult.parse(messages, participants: participants.uniq)
     end
 
     class << self
@@ -186,36 +133,12 @@ module Thinking
         build_tools(character)
       end
 
-      # ツールを実行する。読書の前後処理（関連する記憶の想起、伴走者との対話の記録）もここで行う
+      # ツールを実行する
       def call_tool(fc, core:, llm_client:, health:, character:)
-        tool_result = execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
-
-        if fc[:name] == "read_aozora" && tool_result[:chunk].present?
-          recalled = recall_memories_for(tool_result[:chunk], core: core, llm_client: llm_client)
-          tool_result[:recalled_memories] = recalled if recalled.present?
-        end
-
-        # 読書伴走者との対話をreading_notesに記録
-        if fc[:name] == "talk_to_reading_companion" && tool_result[:response]
-          progress = character.current_reading
-          if progress
-            progress.append_reading_log([
-              { "type" => "dialogue", "speaker" => "reader", "text" => fc[:args]["message"] },
-              { "type" => "dialogue", "speaker" => "companion", "text" => tool_result[:response] },
-            ])
-          end
-        end
-
-        tool_result
+        execute_tool(fc, core: core, llm_client: llm_client, health: health, character: character)
       end
 
       private
-
-      def reading_context_from(fc, tool_result)
-        return nil unless fc[:name] == "read_aozora" && tool_result.is_a?(Hash) && tool_result[:chunk].present?
-
-        { progress_id: tool_result[:reading_progress_id], chunk_text: tool_result[:chunk] }
-      end
 
       def build_prompt(character)
         approval_note = if MemoriaServer::Plugin.schedule_policy(character)[:self_recurring_needs_approval]
@@ -243,10 +166,6 @@ module Thinking
         fns += Thinking::MemoryMaintenanceTools.definitions[:functionDeclarations]
         # claude -p のときは Claude Code の WebSearch を使う（ClaudeCli::Runner）
         fns += Thinking::WebSearchTool.definition[:functionDeclarations] unless ClaudeCli.enabled?
-        if character.reading_enabled?
-          fns += Reading::AozoraTool.definition[:functionDeclarations]
-          fns += Reading::TalkToCompanionTool.definition[:functionDeclarations] if character.reading_companion
-        end
 
         # 予定の管理などはプラグインとして足される
         fns += MemoriaServer::Plugin.gemini_declarations(character, scene: :thinking)
@@ -260,21 +179,6 @@ module Thinking
           Thinking::MemoryMaintenanceTools.execute(fc[:name], fc[:args], core: core, character: character, llm_client: llm_client)
         when "web_search"
           Thinking::WebSearchTool.execute(fc[:args]["query"], llm_client: llm_client)
-        when "read_aozora"
-          Reading::AozoraTool.execute(
-            action: fc[:args]["action"],
-            genre: fc[:args]["genre"],
-            query: fc[:args]["query"],
-            work_id: fc[:args]["work_id"],
-            character: character,
-            llm_client: llm_client
-          )
-        when "talk_to_reading_companion"
-          Reading::TalkToCompanionTool.execute(
-            fc[:args]["message"],
-            llm_client: llm_client,
-            character: character
-          )
         when "read_memory"
           execute_read_memory(fc[:args]["query"], core: core, llm_client: llm_client)
         else
@@ -295,11 +199,6 @@ module Thinking
         end
 
         case fc[:name]
-        when "talk_to_reading_companion"
-          companion_name = Reading::ReadingCompanion::NAME
-          messages << { role: "model", content: fc[:args]["message"], participant: "#{character.name} → #{companion_name}" }
-          companion_response = tool_result.is_a?(Hash) ? tool_result[:response].to_s : tool_result.to_s
-          messages << { role: "tool", content: companion_response, participant: companion_name }
         when "add_schedule"
           time = tool_result.is_a?(Hash) ? tool_result[:scheduled_at] : ""
           purpose = tool_result.is_a?(Hash) ? tool_result[:purpose] : ""
@@ -322,21 +221,6 @@ module Thinking
         when "web_search"
           answer = tool_result.is_a?(Hash) ? tool_result[:answer].to_s.slice(0, 300) : tool_result.to_s.slice(0, 300)
           messages << { role: "tool", content: "[Web検索: #{fc[:args]["query"]}] #{answer}", participant: "system" }
-        when "read_aozora"
-          if tool_result.is_a?(Hash) && tool_result[:title]
-            title = tool_result[:title]
-            author = tool_result[:author]
-            progress = tool_result[:progress]
-            finished = tool_result[:finished] ? "（読了）" : ""
-            preview = tool_result[:chunk].to_s.slice(0, 100)
-            messages << { role: "tool", content: "[読書: #{author}「#{title}」#{progress}#{finished}] #{preview}…", participant: "system" }
-          elsif tool_result.is_a?(Hash) && tool_result[:results]
-            items = tool_result[:results].map { |r| "#{r[:author]}「#{r[:title]}」(ID:#{r[:work_id]})" }.join(", ")
-            messages << { role: "tool", content: "[読書検索] #{items.presence || "該当なし"}", participant: "system" }
-          else
-            error = tool_result.is_a?(Hash) ? (tool_result[:error] || tool_result[:message]) : tool_result.to_s
-            messages << { role: "tool", content: "[読書] #{error}", participant: "system" }
-          end
         when "read_memory"
           text = tool_result.is_a?(Hash) ? tool_result[:results].to_s : tool_result.to_s
           messages << { role: "tool", content: "[記憶検索] #{text.length}文字の記憶を参照", participant: "system" }
@@ -362,35 +246,6 @@ module Thinking
       rescue => e
         Rails.logger.warn("[Thinker] Memory recall failed: #{e.message}")
         nil
-      end
-
-      def save_reading_note(progress_id, chunk_text: nil, llm_client: nil, character: nil)
-        progress = ReadingProgress.find_by(id: progress_id)
-        return unless progress && chunk_text.present?
-
-        entries = []
-
-        # 最初のチャンク: 伴走者とのアイスブレイク
-        if progress.parsed_notes.empty? && llm_client && character&.reading_companion
-          companion = Reading::ReadingCompanion.new(llm_client: llm_client, for_character: character)
-          ice_break = companion.ice_break(
-            work_title: progress.title,
-            work_author: progress.author,
-            character_name: character.name
-          )
-          entries << { "type" => "dialogue", "speaker" => "companion", "text" => ice_break } if ice_break.present?
-        end
-
-        # 原文チャンクを記録
-        entries << {
-          "type" => "narration",
-          "text" => chunk_text,
-          "chunk_range" => progress.current_position.to_s,
-        }
-
-        progress.append_reading_log(entries)
-      rescue => e
-        Rails.logger.warn("[Thinker] Failed to save reading note: #{e.message}")
       end
 
       def load_behavior_principles(core)

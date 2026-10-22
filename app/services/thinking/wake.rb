@@ -30,7 +30,7 @@ module Thinking
       result = think(snapshot: snapshot, core: core, health: health, llm_client: llm_client)
 
       # 体験を記憶として残す（記憶に残さない予定は省く）
-      save_as_memory(core, result, llm_client) unless @wakeup && !@wakeup[:remember]
+      save_as_memory(result, llm_client) unless @wakeup && !@wakeup[:remember]
 
       Rails.logger.info("[Thinking::Wake] Character##{@character.id} completed. Summary: #{result.summary}")
       { share_message: result.share_message.presence, summary: result.summary.presence }
@@ -65,109 +65,9 @@ module Thinking
       time.in_time_zone(ScheduledWakeup::TIME_ZONE).strftime("%m/%d %H:%M")
     end
 
-    def save_as_memory(core, result, llm_client)
-      conversation_text = result.to_conversation_text
-      return if conversation_text.strip.empty?
-
-      # FL(FullLog)は常に保存
-      fl_store = core.fl_store
-      fl_path = fl_store.create(@character.name)
-      fl_store.append(fl_path, conversation_text)
-
-      fl_store.update_frontmatter(fl_path, {
-        "source" => "autonomous",
-        "participants" => result.participants.map(&:to_s),
-      })
-
-      # 読書が含まれるloopではSN生成を抑制（感想はReadingProgressに蓄積済み）
-      if result.reading_occurred
-        generate_reading_summary_if_completed(llm_client, core)
-        return
-      end
-
-      # 読書を含まないloopは従来通りSN生成
-      service = ReflectionService.new(@character, llm_client: llm_client)
-      reflection = service.generate(
-        conversation_text: conversation_text,
-        full_log_ref: File.basename(fl_path),
-        timestamp: Time.now.strftime("%Y%m%d%H%M"),
-      )
-
-      process_reflection(reflection, core, @character) if reflection
-    end
-
-    def process_reflection(reflection, core, character)
-      sn_content = core.vault.read(reflection[:file_path])
-      if sn_content
-        fm, body = MemoriaCore::Frontmatter.parse(sn_content)
-        if fm
-          fm["source"] = "autonomous"
-          core.vault.write(reflection[:file_path], MemoriaCore::Frontmatter.build(fm, body))
-        end
-      end
-
-      TagProfilingJob.perform_later(character.id, reflection[:file_path])
-    end
-
-    def generate_reading_summary_if_completed(llm_client, core)
-      completed = ReadingProgress
-        .where(character: @character, status: "completed", summary_generated: false)
-        .where.not(reading_notes: [nil, "", "[]"])
-        .first
-      return unless completed
-
-      # 読書の掛け合いをFullLogに保存
-      save_reading_log_as_fl(completed, core)
-
-      # キャラクターのSN生成
-      service = Reading::ReadingSummaryService.new(@character, llm_client: llm_client)
-      reflection = service.generate_for(completed)
-      process_reflection(reflection, core, @character) if reflection
-
-      # トートのSN生成
-      generate_companion_reading_summary(completed, llm_client)
-
-      # 統合SN生成済みフラグ（reading_notesは保持）
-      completed.update!(summary_generated: true)
-    end
-
-    def save_reading_log_as_fl(reading_progress, core)
-      companion_name = @character.reading_companion&.name || Reading::ReadingCompanion::NAME
-
-      lines = ["読書記録: #{reading_progress.author}「#{reading_progress.title}」\n"]
-      reading_progress.parsed_notes.each do |entry|
-        case entry["type"]
-        when "narration"
-          lines << "【原文】\n#{entry["text"]}\n"
-        when "dialogue"
-          speaker = entry["speaker"] == "companion" ? companion_name : @character.name
-          lines << "#{speaker}: #{entry["text"]}\n"
-        end
-      end
-
-      fl_store = core.fl_store
-      fl_path = fl_store.create(@character.name)
-      fl_store.append(fl_path, lines.join("\n"))
-      fl_store.update_frontmatter(fl_path, {
-        "source" => "reading",
-        "participants" => [@character.name, companion_name],
-        "work_title" => reading_progress.title,
-        "work_author" => reading_progress.author,
-      })
-    end
-
-    def generate_companion_reading_summary(completed, llm_client)
-      tote = Reading::ReadingCompanion.find_character(for_character: completed.character)
-      return unless tote
-
-      service = Reading::ReadingSummaryService.new(tote, llm_client: llm_client)
-      reflection = service.generate_companion_summary_for(completed, reader_name: completed.character.name)
-      return unless reflection
-
-      tote_core = MemoriaCore::Core.new(tote.vault_path)
-      process_reflection(reflection, tote_core, tote)
-    rescue => e
-      Rails.logger.warn("[Thinking::Wake] Companion summary failed: #{e.message}")
+    def save_as_memory(result, llm_client)
+      MemorizeService.run(@character, text: result.to_conversation_text, source: "autonomous",
+        metadata: { participants: result.participants.map(&:to_s) }, llm_client: llm_client)
     end
 
     def usage_tracker

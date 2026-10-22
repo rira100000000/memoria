@@ -54,6 +54,21 @@ module MemoriaServer
       raise WakeSkipped, "このキャラクターのアダプタ（#{self.class.name}）は起床に対応していません"
     end
 
+    # オプション：キャラクターの記憶から、query に関係するものを思い出す。
+    # プラグインが、キャラクターの経験とつながった能力（読書で、読んだ一節から思い出すなど）を作るのに使う。
+    # @return [String, nil] LLM のプロンプトにそのまま入れられる形の記憶。なければ nil
+    def recall(character_id:, query:)
+      nil
+    end
+
+    # オプション：text をキャラクターの記憶として残す。プラグインが、会話の外の体験（読み終えた本など）を記憶にするのに使う。
+    # @param source [String] 体験の種類（"reading" など）。アダプタが振り返り方を選ぶのに使ってよい
+    # @param metadata [Hash] 体験の情報（作品名など）
+    # @return [Boolean] 記憶に残したか
+    def memorize(character_id:, text:, source:, metadata: {})
+      false
+    end
+
     # オプション：wake の結果を memoria が連絡手段に送ったあとに呼ばれる。
     # 送った言葉を会話の履歴に入れ、ユーザーの返事がその続きになるようにする
     def record_outgoing(character_id:, text:)

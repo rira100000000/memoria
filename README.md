@@ -30,7 +30,7 @@ sequenceDiagram
 | アダプタ | 記憶の保存・想起・整理、プロンプトの組み立て、LLM の呼び出し、人格。同梱の memoria_core は見本実装で、ほかの記憶システムは [docs/ADAPTER_README.md](docs/ADAPTER_README.md) の契約で接続する |
 | プラグイン | キャラクターに役割と能力（ツールと指示）を与える。[docs/PLUGIN_README.md](docs/PLUGIN_README.md) |
 
-本体には、どのキャラクター・どの記憶システムを接続しても要る、接続と表出の仕組みだけを置きます。今は思考ループや読書などが本体側に残っていて、アダプタとプラグインへ移している途中です。本体から memoria_core や能力の実装への参照は `spec/lib/memoria_server/boundary_spec.rb` が検査し、新しく増えると落ちます。
+本体には、どのキャラクター・どの記憶システムを接続しても要る、接続と表出の仕組みだけを置きます。思考ループの中身はアダプタに、読書やペットのような能力はプラグインに移しました。本体から memoria_core や能力の実装への参照は `spec/lib/memoria_server/boundary_spec.rb` が検査し、新しく増えると落ちます。
 
 ## 記憶の構造
 
@@ -94,7 +94,6 @@ bundle exec rspec         # テスト
 - OpenAI互換API + SSEストリーミング（感情などの拡張は `x_memoria` フィールドで受け渡し。capability negotiationは [docs/ADAPTER_README.md](docs/ADAPTER_README.md)）
 - 記憶検索API（`POST /api/characters/:id/memories/recall`）、記憶のブランチ・スナップショットAPI
 - 自律思考ループ（会話がない間の記憶整理・考えごと）と予定（単発・繰り返し。実行できなかった予定は連絡手段に通知）
-- 読書機能（青空文庫の作品を読み、内容が記憶に蓄積される）
 - Discord bot、音声書き起こし・読み上げエンドポイント
 - プラグイン（キャラクターにツールと指示を足す拡張。[docs/PLUGIN_README.md](docs/PLUGIN_README.md)）
 - claude -p バックエンド（会話・思考ループと軽い作業を Claude Code のヘッドレス実行で動かす選択肢。[docs/CLAUDE_CLI_BACKEND.md](docs/CLAUDE_CLI_BACKEND.md)）

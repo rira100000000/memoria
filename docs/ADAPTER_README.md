@@ -157,7 +157,15 @@ end
 - それ以外の例外は、MS が少し待って1回やり直し、それでも失敗したら知らせる
 - 未実装の場合は `WakeSkipped`（起床に対応していない）として扱われる
 
-### 3.3.2 オプション：`record_outgoing(character_id:, text:)`
+### 3.3.2 オプション：`recall(character_id:, query:)` と `memorize(character_id:, text:, source:, metadata: {})`
+
+プラグインが、キャラクターの記憶とつながった能力を作るために使う（例: 読書のプラグインが、読んだ一節に関係する記憶を思い出させ、読み終えた本を記憶に残す）。
+
+- `recall` は、query に関係する記憶を、LLM のプロンプトにそのまま入れられる文字列で返す。なければ `nil`
+- `memorize` は、text（会話の外の体験の記録）を記憶に残し、残したら `true` を返す。`source` は体験の種類（`"reading"` など）で、振り返り方を選ぶのに使ってよい。`metadata` は作品名などの情報
+- 未実装なら `recall` は `nil`、`memorize` は `false`（プラグインは記憶を使わずに動く）
+
+### 3.3.3 オプション：`record_outgoing(character_id:, text:)`
 
 `wake` の `share_message` を MS が連絡手段に送ったあとに呼ぶ。送った言葉を会話の履歴に入れておくと、ユーザーの返事がその続きとして扱える。未実装なら何もしない。
 

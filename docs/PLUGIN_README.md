@@ -97,6 +97,14 @@ plugin.wake(character, purpose: "頼まれていた作業の結果をマスタ�
 
 `wake` は「伝える（share）」予定として入るので、キャラクターが伝言を書かなかった場合や、失敗した場合も必ずマスターに届く。システムからのお知らせをそのまま送りたいときは `notify(character, text)` を使う。
 
+### 記憶と、ほかのキャラクター
+
+プラグインは記憶の中身に触らず、アダプタを通して使う。
+
+- `recall(character, query)`: キャラクターの記憶から、query に関係するものを思い出す（文字列か `nil`）
+- `memorize(character, text, source:, metadata: {})`: 会話の外の体験を記憶に残す
+- `talk_to(other_character, text, channel:)`: 別のキャラクターに話しかけて返答を受け取る。話した内容は相手の会話として、相手の記憶に残る
+
 ### キャラクターごとの設定
 
 プラグインがキャラクターごとに覚えておきたい値（ペットの名前など）は、`settings(character)` で読み、`save_settings(character, hash)` で書く。プラグインの `name` ごとに分けて `Character#plugin_settings` に入る。
