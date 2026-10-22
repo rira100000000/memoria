@@ -21,6 +21,12 @@ module MemoriaServer
       @adapter ||= load_adapter_from_env
     end
 
+    # キャラクターごとのディレクトリ（vault）を置く場所。User#vault_path → Character#vault_path の順に下る。
+    # 記憶のアダプタも、プラグインも、キャラクターのファイルはこの下に置く
+    def vault_root
+      File.expand_path(ENV.fetch("VAULT_ROOT", "~/memoria-vaults"))
+    end
+
     def adapter_kind
       ENV.fetch("MS_ADAPTER", "memoria_core").to_s
     end

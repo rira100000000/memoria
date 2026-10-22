@@ -44,11 +44,7 @@ RSpec.describe "memoria 本体の境界" do
       SleepPhaseJob|TagProfilingJob|SummarizeJob|ChatJob)\b/x
   end
 
-  let(:known) do
-    {
-      "app/models/user.rb" => %w[MemoriaCore],
-    }
-  end
+  let(:known) { {} }
 
   def references
     files = ms_files.flat_map { |pattern| Dir.glob(root.join(pattern).to_s) }

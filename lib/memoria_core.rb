@@ -1,11 +1,3 @@
-module MemoriaCore
-  class << self
-    def vault_root
-      File.expand_path(ENV.fetch("VAULT_ROOT", "~/memoria-vaults"))
-    end
-  end
-end
-
 require_relative "memoria_core/vault_versioning"
 require_relative "memoria_core/vault_manager"
 require_relative "memoria_core/frontmatter"

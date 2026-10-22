@@ -8,6 +8,6 @@ class User < ApplicationRecord
   validates :email, presence: true, uniqueness: true
 
   def vault_path
-    File.join(MemoriaCore.vault_root, id.to_s)
+    File.join(MemoriaServer.vault_root, id.to_s)
   end
 end
