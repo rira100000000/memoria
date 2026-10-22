@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_090000) do
   create_table "admin_keys", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "key_hash", null: false
@@ -52,14 +52,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.json "plugin_settings", default: {}, null: false
-    t.integer "reading_companion_id"
-    t.boolean "reading_enabled", default: false, null: false
     t.text "system_prompt"
     t.boolean "thinking_loop_enabled", default: false, null: false
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
     t.string "vault_dir_name", null: false
-    t.index ["reading_companion_id"], name: "index_characters_on_reading_companion_id"
     t.index ["user_id", "vault_dir_name"], name: "index_characters_on_user_id_and_vault_dir_name", unique: true
     t.index ["user_id"], name: "index_characters_on_user_id"
   end
@@ -130,26 +127,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
     t.index ["character_id"], name: "index_presences_on_character_id", unique: true
   end
 
-  create_table "reading_progresses", force: :cascade do |t|
-    t.string "author", null: false
-    t.text "cached_text"
-    t.integer "character_id", null: false
-    t.text "chunk_boundaries"
-    t.datetime "created_at", null: false
-    t.integer "current_position", default: 0
-    t.text "reading_notes"
-    t.string "source_info"
-    t.string "status", default: "reading", null: false
-    t.boolean "summary_generated", default: false, null: false
-    t.string "title", null: false
-    t.integer "total_length"
-    t.datetime "updated_at", null: false
-    t.string "work_id", null: false
-    t.index ["character_id", "status"], name: "index_reading_progresses_on_character_id_and_status"
-    t.index ["character_id", "work_id"], name: "index_reading_progresses_on_character_id_and_work_id", unique: true
-    t.index ["character_id"], name: "index_reading_progresses_on_character_id"
-  end
-
   create_table "scheduled_wakeups", force: :cascade do |t|
     t.string "action"
     t.integer "character_id", null: false
@@ -194,7 +171,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
   add_foreign_key "api_usage_logs", "characters"
   add_foreign_key "api_usage_logs", "users"
   add_foreign_key "channel_bindings", "characters"
-  add_foreign_key "characters", "characters", column: "reading_companion_id"
   add_foreign_key "characters", "users"
   add_foreign_key "chat_results", "characters"
   add_foreign_key "chat_results", "users"
@@ -203,7 +179,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_130000) do
   add_foreign_key "device_keys", "devices"
   add_foreign_key "presences", "characters"
   add_foreign_key "presences", "devices", column: "active_device_id"
-  add_foreign_key "reading_progresses", "characters"
   add_foreign_key "scheduled_wakeups", "characters"
   add_foreign_key "transfers", "characters"
   add_foreign_key "transfers", "devices", column: "from_device_id"
