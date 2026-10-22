@@ -26,6 +26,7 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りなどの軽い作業（既定: ha
 # CLAUDE_CLI_TIMEOUT=600        # 1回の実行の上限（秒）
 # CLAUDE_CLI_MAX_TURNS=20       # 1回の実行でのツール呼び出しの往復の上限
 # CLAUDE_CLI_BUILTIN_TOOLS=WebSearch,WebFetch  # 会話と思考ループで使わせる Claude Code の組み込みツール（default で全部）
+# CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER="tote=WebSearch,WebFetch;helper="  # キャラごとに上書き（vault_dir_name=ツール。空なら使わせない）
 # CLAUDE_CLI_WORKDIR=/path/to/dir   # 会話と思考ループの作業ディレクトリ（既定: 空の一時ディレクトリ）
 # CLAUDE_CLI_SETTINGS=/path/to/settings.json  # claude に渡す設定ファイル（権限の allow / deny など）
 ```

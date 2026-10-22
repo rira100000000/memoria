@@ -117,6 +117,7 @@ RSpec.describe ClaudeCli::Runner do
     args = recorded["args"]
     expect(args[args.index("--json-schema") + 1]).to eq('{"type":"object"}')
     expect(result.structured).to eq("reply" => "やあ")
+    expect(result.tool_events).to be_empty  # 答えのツールは、ツールを使った記録に残さない
     expect(progress).to be_empty
   end
 
@@ -133,6 +134,27 @@ RSpec.describe ClaudeCli::Runner do
     expect(args[args.index("--allowedTools") + 1..]).to start_with("mcp__memoria").and(include("--settings"))
     expect(args[args.index("--allowedTools") + 2]).to eq("--settings")
     expect(args[args.index("--settings") + 1]).to eq("/path/to/settings.json")
+  end
+
+  it "gives each character its own built-in tools when set" do
+    claude = fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")')
+    runner = described_class.new(command: claude, builtin_tools: "default",
+      builtin_tools_by_character: "#{character.vault_dir_name}=WebSearch,WebFetch; other=")
+
+    runner.run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet")
+
+    args = recorded["args"]
+    expect(args[args.index("--tools") + 1]).to eq("WebSearch,WebFetch")
+    expect(args[args.index("--allowedTools") + 1..]).to eq(%w[mcp__memoria WebSearch WebFetch])
+  end
+
+  it "uses no built-in tools for a character set to none" do
+    claude = fake_claude('puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")')
+    described_class.new(command: claude, builtin_tools: "default", builtin_tools_by_character: "#{character.vault_dir_name}=")
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet")
+
+    args = recorded["args"]
+    expect(args[args.index("--tools") + 1]).to eq("")
   end
 
   it "keeps light work out of the given directory" do

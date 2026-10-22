@@ -8,7 +8,9 @@ module ClaudeCli
   # MCP サーバは実行したツールの記録を一時ファイル（JSON Lines）に書き、ここで読み戻して返す。
   # Claude Code の組み込みツールは、既定では読むだけのもの（WebSearch・WebFetch）をキャラクターのツールと
   # 一緒に使わせる。CLAUDE_CLI_BUILTIN_TOOLS=default にすると全部使わせる（権限は CLAUDE_CLI_SETTINGS の
-  # 設定ファイルで決める）。作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
+  # 設定ファイルで決める）。キャラクターごとに変えるときは CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER に
+  # "vault_dir_name=ツール,ツール;vault_dir_name=default" の形で書く（"vault_dir_name=" なら使わせない）。
+  # 作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
   # 利用者の Claude Code の設定ファイル（~/.claude など）は読まない。
   class Runner
     Result = Struct.new(:text, :tool_events, :model, :structured, keyword_init: true)
@@ -27,13 +29,18 @@ module ClaudeCli
                    timeout: ENV.fetch("CLAUDE_CLI_TIMEOUT", DEFAULT_TIMEOUT).to_i,
                    max_turns: ENV.fetch("CLAUDE_CLI_MAX_TURNS", DEFAULT_MAX_TURNS).to_i,
                    builtin_tools: ENV.fetch("CLAUDE_CLI_BUILTIN_TOOLS", DEFAULT_BUILTIN_TOOLS),
+                   builtin_tools_by_character: ENV["CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER"],
                    work_dir: ENV["CLAUDE_CLI_WORKDIR"].presence,
                    settings: ENV["CLAUDE_CLI_SETTINGS"].presence,
                    mcp_command: Rails.root.join("bin/memoria_mcp").to_s)
       @command = command
       @work_dir = work_dir
       @settings = settings
-      @builtin_tools = builtin_tools.to_s.split(",").map(&:strip).reject(&:empty?)
+      @builtin_tools = tool_list(builtin_tools)
+      @builtin_tools_by_character = builtin_tools_by_character.to_s.split(";").filter_map { |entry|
+        key, tools = entry.split("=", 2)
+        [key.strip, tool_list(tools)] if key.to_s.strip.present? && tools
+      }.to_h
       @timeout = timeout
       @max_turns = max_turns
       @mcp_command = mcp_command
@@ -60,7 +67,8 @@ module ClaudeCli
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
         relay = on_progress && ProgressRelay.new(on_progress)
-        stdout, stderr, status = execute(command_line(system_prompt, model, config_path, json_schema), prompt, work_dir, relay)
+        builtin = character ? @builtin_tools_by_character.fetch(character.vault_dir_name, @builtin_tools) : []
+        stdout, stderr, status = execute(command_line(system_prompt, model, config_path, builtin, json_schema), prompt, work_dir, relay)
         messages = parse_stream(stdout)
         text = final_text(messages, stdout, stderr, status)
         structured = messages.reverse.find { |m| m["type"] == "result" }&.dig("structured_output")
@@ -87,8 +95,11 @@ module ClaudeCli
       }
     end
 
-    def command_line(system_prompt, model, config_path, json_schema = nil)
-      builtin = config_path ? @builtin_tools : []
+    def tool_list(text)
+      text.to_s.split(",").map(&:strip).reject(&:empty?)
+    end
+
+    def command_line(system_prompt, model, config_path, builtin, json_schema = nil)
       cmd = [
         @command, "-p",
         "--output-format", "stream-json", "--verbose",
@@ -224,7 +235,9 @@ module ClaudeCli
         Array(content).each do |c|
           next unless c.is_a?(Hash)
 
-          if m["type"] == "assistant" && c["type"] == "tool_use" && !c["name"].to_s.start_with?("mcp__")
+          # mcp__ はキャラクターのツール（MCP サーバが記録する）、StructuredOutput は json_schema の答え
+          if m["type"] == "assistant" && c["type"] == "tool_use" && !c["name"].to_s.start_with?("mcp__") &&
+              c["name"] != ProgressRelay::STRUCTURED_OUTPUT_TOOL
             calls[c["id"]] = c
           elsif m["type"] == "user" && c["type"] == "tool_result"
             results[c["tool_use_id"]] = tool_result_text(c["content"])
