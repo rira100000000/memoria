@@ -28,6 +28,12 @@ module Memoria
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets tasks])
 
+    # 同梱の見本アダプタ（memoria_core）の部品は app/memoria_core/ にまとめる。
+    # 下の各ディレクトリを読み込みの起点にして、クラス名は app/ の直下にあるときと同じにする
+    memoria_core_dirs = %w[services models jobs controllers].map { |dir| root.join("app/memoria_core", dir) }
+    config.autoload_paths += memoria_core_dirs
+    config.eager_load_paths += memoria_core_dirs
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

@@ -30,7 +30,15 @@ sequenceDiagram
 | アダプタ | 記憶の保存・想起・整理、プロンプトの組み立て、LLM の呼び出し、人格。同梱の memoria_core は見本実装で、ほかの記憶システムは [docs/ADAPTER_README.md](docs/ADAPTER_README.md) の契約で接続する |
 | プラグイン | キャラクターに役割と能力（ツールと指示）を与える。[docs/PLUGIN_README.md](docs/PLUGIN_README.md) |
 
-本体には、どのキャラクター・どの記憶システムを接続しても要る、接続と表出の仕組みだけを置きます。思考ループの中身はアダプタに、読書やペットのような能力はプラグインに移しました。本体から memoria_core や能力の実装への参照は `spec/lib/memoria_server/boundary_spec.rb` が検査し、新しく増えると落ちます。
+本体には、どのキャラクター・どの記憶システムを接続しても要る、接続と表出の仕組みだけを置きます。
+
+| 置き場所 | 中身 |
+| --- | --- |
+| `app/`（`app/memoria_core/` 以外）、`lib/memoria_server/` | 本体 |
+| `app/memoria_core/`、`lib/memoria_core/`、`lib/memoria_server/adapters/memoria_core.rb` | 見本アダプタ（会話・プロンプト・LLM・思考ループの中身・記憶の整理と、記憶の本体） |
+| `lib/memoria_server/plugins/` | 同梱のプラグイン（予定） |
+
+本体から memoria_core への参照は、アダプタを通すときだけです。`spec/lib/memoria_server/boundary_spec.rb` が、本体のファイルが `app/memoria_core/` の定数を使っていないかを検査します。
 
 ## 記憶の構造
 

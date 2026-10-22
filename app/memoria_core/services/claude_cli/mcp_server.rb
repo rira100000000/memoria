@@ -1,4 +1,4 @@
-module MemoriaServer
+module ClaudeCli
   # キャラクターのツールを MCP（stdio、JSON-RPC 2.0）で公開する最小のサーバ。
   # claude -p バックエンド（ClaudeCli::Runner）が bin/memoria_mcp 経由で起動する。
   #
@@ -50,7 +50,7 @@ module MemoriaServer
       when "ping"
         result(id, {})
       when "tools/list"
-        result(id, { tools: @provider.tools.map { |t| Plugin::ToolSchema.gemini_to_json_schema(t) } })
+        result(id, { tools: @provider.tools.map { |t| MemoriaServer::Plugin::ToolSchema.gemini_to_json_schema(t) } })
       when "tools/call"
         result(id, call_tool(request["params"] || {}))
       else

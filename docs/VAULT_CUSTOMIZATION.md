@@ -1,6 +1,6 @@
 # Vaultによるプロンプトカスタマイズ
 
-キャラクターのvault直下に以下のMarkdownファイルを置くと、プロンプト構築時に自動で読み込まれる（`app/services/prompt_builder.rb`）。
+キャラクターのvault直下に以下のMarkdownファイルを置くと、プロンプト構築時に自動で読み込まれる（`app/memoria_core/services/prompt_builder.rb`）。
 
 | ファイル | 効果 |
 | --- | --- |

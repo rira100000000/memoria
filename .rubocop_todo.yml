@@ -26,7 +26,7 @@ Layout/EmptyLinesAroundBlockBody:
 # SupportedStylesAlignWith: keyword, variable, start_of_line
 Layout/EndAlignment:
   Exclude:
-    - 'app/services/reflection_service.rb'
+    - 'app/memoria_core/services/reflection_service.rb'
 
 # Offense count: 266
 # This cop supports safe autocorrection (--autocorrect).
@@ -42,9 +42,9 @@ Layout/SpaceInsideArrayLiteralBrackets:
 # SupportedStylesForMultiline: comma, consistent_comma, diff_comma, no_comma
 Style/TrailingCommaInArrayLiteral:
   Exclude:
-    - 'app/services/thinking/memory_maintenance_tools.rb'
-    - 'app/services/thinking/schedule_tools.rb'
-    - 'app/services/thinking/thinker.rb'
+    - 'app/memoria_core/services/thinking/memory_maintenance_tools.rb'
+    - 'lib/memoria_server/plugins/schedule_tools.rb'
+    - 'app/memoria_core/services/thinking/thinker.rb'
     - 'spec/models/chat_session_record_spec.rb'
     - 'spec/models/reading_progress_spec.rb'
     - 'spec/services/llm_client_spec.rb'

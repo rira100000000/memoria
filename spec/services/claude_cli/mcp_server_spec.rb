@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe MemoriaServer::McpServer do
+RSpec.describe ClaudeCli::McpServer do
   let(:provider) do
     Class.new do
       def tools

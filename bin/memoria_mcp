@@ -31,7 +31,7 @@ provider = ClaudeCli::ToolProvider.build(
   trigger_type: options[:trigger]
 )
 
-MemoriaServer::McpServer.new(
+ClaudeCli::McpServer.new(
   provider: provider,
   output: protocol_out,
   events_path: ENV["MEMORIA_MCP_EVENTS"]
