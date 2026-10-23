@@ -27,6 +27,13 @@ RSpec.describe ClaudeCli::LongThink do
       expect(long_think.read.minutes).to eq(3)
     end
 
+    it "rounds fractional numbers up, as the tool description says" do
+      expect(long_think.declare(2.5, "学習", now: now)[:minutes]).to eq(3)
+      expect(long_think.declare(0.1, "学習", now: now)[:minutes]).to eq(1)
+      expect(long_think.declare(59.5, "学習", now: now)).to include(minutes: 60, capped: false)
+      expect(long_think.declare(60.5, "学習", now: now)).to include(minutes: 60, capped: true)
+    end
+
     it "replaces an earlier declaration" do
       long_think.declare(10, "一つめ", now: now)
       long_think.declare(20, "二つめ", now: now)
@@ -49,11 +56,11 @@ RSpec.describe ClaudeCli::LongThink do
       expect(result[:message]).not_to include("超える")
     end
 
-    [0, -5, "0", "abc", "", nil].each do |minutes|
+    [0, -5, "0", "abc", "", nil, "1e400"].each do |minutes|
       it "returns an error and writes nothing for minutes #{minutes.inspect}" do
         result = long_think.declare(minutes, "なにか", now: now)
 
-        expect(result).to eq(error: "minutes には1以上の整数を指定してください")
+        expect(result).to eq(error: "minutes には1以上の数を指定してください")
         expect(File.exist?(path)).to be(false)
         expect(long_think.read).to be_nil
       end
@@ -117,7 +124,7 @@ RSpec.describe ClaudeCli::LongThink do
         inputSchema: {
           type: "object",
           properties: {
-            minutes: { type: "integer", description: ClaudeCli::LongThink::DEFINITION[:parameters][:properties][:minutes][:description] },
+            minutes: { type: "number", description: ClaudeCli::LongThink::DEFINITION[:parameters][:properties][:minutes][:description] },
             reason: { type: "string", description: "何をするのか（短く）" },
           },
           required: %w[minutes reason],
@@ -129,6 +136,10 @@ RSpec.describe ClaudeCli::LongThink do
       expect(called[:isError]).to be(false)
       expect(JSON.parse(called[:content].first[:text])).to include("minutes" => 7, "capped" => false)
       expect(long_think.read.minutes).to eq(7)
+
+      called = server.handle(JSON.generate(jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: { name: "long_think", arguments: { minutes: 2.5, reason: "計測" } }))[:result]
+      expect(JSON.parse(called[:content].first[:text])).to include("minutes" => 3)
     end
   end
 end

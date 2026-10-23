@@ -12,11 +12,15 @@ module ClaudeCli
       name: TOOL_NAME,
       description: "長考モードに入る。出力もツール呼び出しもないまま10分を超えそうな処理" \
                    "（長いベンチマークや学習など）の前に呼ぶと、今から minutes 分のあいだは" \
-                   "何も出力しなくても止められない。普通の作業では呼ばない。minutes の上限は#{MAX_MINUTES}分。",
+                   "何も出力しなくても止められない。普通の作業では呼ばない。minutes は分数で、小数は切り上げる。" \
+                   "上限は#{MAX_MINUTES}分で、それを超える指定は#{MAX_MINUTES}分にする。",
       parameters: {
         type: "OBJECT",
         properties: {
-          minutes: { type: "INTEGER", description: "今から何分のあいだ出力がなくても待ってほしいか（1〜#{MAX_MINUTES}）" },
+          minutes: {
+            type: "NUMBER",
+            description: "今から何分のあいだ出力がなくても待ってほしいか。小数は切り上げる（2.5 なら3分）。上限は#{MAX_MINUTES}分",
+          },
           reason: { type: "STRING", description: "何をするのか（短く）" },
         },
         required: %w[minutes reason],
@@ -33,8 +37,10 @@ module ClaudeCli
 
     # @return [Hash] ツールの結果
     def declare(minutes, reason, now: Time.now)
-      minutes = Integer(minutes, exception: false) || Float(minutes, exception: false)&.ceil
-      return { error: "minutes には1以上の整数を指定してください" } unless minutes && minutes >= 1
+      # 数値でも文字列でも、小数は切り上げる（Integer(2.5) は切り捨てるので Float で読む）
+      number = Float(minutes, exception: false)
+      minutes = number.ceil if number&.finite?
+      return { error: "minutes には1以上の数を指定してください" } unless minutes.is_a?(Integer) && minutes >= 1
 
       capped = minutes > MAX_MINUTES
       minutes = MAX_MINUTES if capped
