@@ -1,13 +1,16 @@
 module ClaudeCli
   # MCP サーバ（bin/memoria_mcp）に渡すツールの出どころ。
-  # 会話は ChatSession の、思考ループは Thinker のツールをそのまま使う（Gemini の場合と同じツールと実行処理）
+  # 会話は ChatSession の、思考ループは Thinker のツールをそのまま使う（Gemini の場合と同じツールと実行処理）。
+  # long_think_path を渡すと、長考の宣言（ClaudeCli::LongThink）のツールを足す
   module ToolProvider
-    def self.build(character:, scene:, platform: nil, trigger_type: nil)
-      case scene.to_sym
-      when :thinking then Thinking.new(character, trigger_type: trigger_type || "thinking_loop")
-      when :chat then Chat.new(character, platform: platform&.to_sym)
-      else raise ArgumentError, "unknown scene: #{scene}"
-      end
+    def self.build(character:, scene:, platform: nil, trigger_type: nil, long_think_path: nil)
+      provider =
+        case scene.to_sym
+        when :thinking then Thinking.new(character, trigger_type: trigger_type || "thinking_loop")
+        when :chat then Chat.new(character, platform: platform&.to_sym)
+        else raise ArgumentError, "unknown scene: #{scene}"
+        end
+      long_think_path ? LongThink::Provider.new(provider, LongThink.new(long_think_path)) : provider
     end
 
     class Thinking

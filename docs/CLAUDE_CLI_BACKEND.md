@@ -23,7 +23,8 @@ CLAUDE_CLI_MODEL=sonnet         # 会話と思考ループ（既定: sonnet）
 CLAUDE_CLI_DEEP_MODEL=opus      # 込み入った会話で切り替えるモデル（既定: opus）
 CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りなどの軽い作業（既定: haiku）
 # CLAUDE_CLI_COMMAND=claude     # claude コマンドのパス
-# CLAUDE_CLI_TIMEOUT=600        # 1回の実行の上限（秒）
+# CLAUDE_CLI_IDLE_TIMEOUT=600   # 出力がこれだけとぎれたら止める（秒）
+# CLAUDE_CLI_TIMEOUT=7200       # 1回の実行の経過時間の上限（秒）。出力が続いていても、これを超えたら止める
 # CLAUDE_CLI_MAX_TURNS=20       # 1回の実行でのツール呼び出しの往復の上限
 # CLAUDE_CLI_BUILTIN_TOOLS=WebSearch,WebFetch  # 会話と思考ループで使わせる Claude Code の組み込みツール（default で全部）
 # CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER="tote=WebSearch,WebFetch;helper="  # キャラごとに上書き（vault_dir_name=ツール。空なら使わせない）
@@ -51,6 +52,14 @@ CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りなどの軽い作業（既定: ha
 - `DISCORD_ALLOWED_USER_IDS` で、Discord bot が応答する相手を自分だけに絞る
 - 取り返しのつかない操作（履歴の書き換え、外部への送信など）を設定ファイルの `deny` で拒否する
 - 作業ディレクトリの中身を、キャラクターが消せない場所（リモートなど）にも残しておく
+
+### 止めるとき
+
+claude -p の実行は、経過時間ではなく出力のとぎれで止めます。途中経過やツールの呼び出しが続いているあいだは動かし続け、出力が `CLAUDE_CLI_IDLE_TIMEOUT` 秒（既定: 600秒）とぎれたら、止まったものとして止めます。経過時間の上限 `CLAUDE_CLI_TIMEOUT`（既定: 7200秒）は、止まらなくなったときの安全弁として残しています。
+
+長いベンチマークや学習のように、出力もツール呼び出しもないまま長く動く処理のために、キャラクターのツールに `long_think(minutes, reason)` を足しています。キャラクターがこれを呼ぶと、今から `minutes` 分（上限60分）は出力がなくても止めません。期限を過ぎると、ふだんの許容時間に戻ります。途中経過を受け取る会話（Discord など）では「長考中（〜N分：理由）」と知らせます。
+
+宣言は、MCP サーバが実行ごとの一時ディレクトリのファイル（環境変数 `MEMORIA_MCP_LONG_THINK` で渡す）に書き、memoria がそれを読みます。並行して動く実行どうしで混ざることはありません。
 
 ### 強いモデルへの切り替え
 

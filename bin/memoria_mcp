@@ -4,6 +4,7 @@
 #   bin/memoria_mcp --character ID --scene thinking|chat [--platform discord] [--trigger thinking_loop]
 #
 # 実行したツールの記録は環境変数 MEMORIA_MCP_EVENTS のファイルに書き出す。
+# 環境変数 MEMORIA_MCP_LONG_THINK があれば long_think ツールを足し、長考の宣言をそのファイルに書く。
 
 require "optparse"
 
@@ -28,7 +29,8 @@ provider = ClaudeCli::ToolProvider.build(
   character: character,
   scene: options[:scene],
   platform: options[:platform],
-  trigger_type: options[:trigger]
+  trigger_type: options[:trigger],
+  long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence
 )
 
 ClaudeCli::McpServer.new(

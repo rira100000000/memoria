@@ -11,11 +11,18 @@ module ClaudeCli
   # 設定ファイルで決める）。キャラクターごとに変えるときは CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER に
   # "vault_dir_name=ツール,ツール;vault_dir_name=default" の形で書く（"vault_dir_name=" なら使わせない）。
   # 作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
+  # 出力が CLAUDE_CLI_IDLE_TIMEOUT 秒とぎれたら止める。キャラクターが long_think ツールで長考を宣言したら、
+  # その期限までは出力がなくても止めない。経過時間の上限 CLAUDE_CLI_TIMEOUT は安全弁として残す。
   # 利用者の Claude Code の設定ファイル（~/.claude など）は読まない。
   class Runner
     Result = Struct.new(:text, :tool_events, :model, :structured, keyword_init: true)
 
-    DEFAULT_TIMEOUT = 600
+    # 経過時間の上限（安全弁）
+    DEFAULT_TIMEOUT = 7200
+    # 出力がこれだけとぎれたら止める
+    DEFAULT_IDLE_TIMEOUT = 600
+    # 止まっていないかを見る間隔
+    POLL_INTERVAL = 1
     DEFAULT_MAX_TURNS = 20
     # キャラクターのツールと一緒に使わせる Claude Code の組み込みツール（読むだけのもの）
     DEFAULT_BUILTIN_TOOLS = "WebSearch,WebFetch"
@@ -27,6 +34,8 @@ module ClaudeCli
 
     def initialize(command: ENV.fetch("CLAUDE_CLI_COMMAND", "claude"),
                    timeout: ENV.fetch("CLAUDE_CLI_TIMEOUT", DEFAULT_TIMEOUT).to_i,
+                   idle_timeout: ENV.fetch("CLAUDE_CLI_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT).to_i,
+                   poll_interval: POLL_INTERVAL,
                    max_turns: ENV.fetch("CLAUDE_CLI_MAX_TURNS", DEFAULT_MAX_TURNS).to_i,
                    builtin_tools: ENV.fetch("CLAUDE_CLI_BUILTIN_TOOLS", DEFAULT_BUILTIN_TOOLS),
                    builtin_tools_by_character: ENV["CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER"],
@@ -42,6 +51,8 @@ module ClaudeCli
         [key.strip, tool_list(tools)] if key.to_s.strip.present? && tools
       }.to_h
       @timeout = timeout
+      @idle_timeout = idle_timeout
+      @poll_interval = poll_interval
       @max_turns = max_turns
       @mcp_command = mcp_command
     end
@@ -55,20 +66,22 @@ module ClaudeCli
     def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
+        long_think = LongThink.new(File.join(dir, "long_think.json"))
         work_dir = File.join(dir, "work")
         Dir.mkdir(work_dir)
 
         config_path = nil
         if character
           config_path = File.join(dir, "mcp.json")
-          File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path)))
+          File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path, long_think)))
         end
 
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
         relay = on_progress && ProgressRelay.new(on_progress)
         builtin = character ? @builtin_tools_by_character.fetch(character.vault_dir_name, @builtin_tools) : []
-        stdout, stderr, status = execute(command_line(system_prompt, model, config_path, builtin, json_schema), prompt, work_dir, relay)
+        stdout, stderr, status = execute(command_line(system_prompt, model, config_path, builtin, json_schema), prompt, work_dir, relay,
+          long_think: character && long_think)
         messages = parse_stream(stdout)
         text = final_text(messages, stdout, stderr, status)
         structured = messages.reverse.find { |m| m["type"] == "result" }&.dig("structured_output")
@@ -80,7 +93,7 @@ module ClaudeCli
 
     private
 
-    def mcp_config(character, scene, platform, trigger_type, events_path)
+    def mcp_config(character, scene, platform, trigger_type, events_path, long_think)
       args = ["--character", character.id.to_s, "--scene", scene.to_s]
       args += ["--trigger", trigger_type] if trigger_type
       args += ["--platform", platform.to_s] if platform
@@ -89,7 +102,7 @@ module ClaudeCli
           memoria: {
             command: @mcp_command,
             args: args,
-            env: { "MEMORIA_MCP_EVENTS" => events_path, "RAILS_ENV" => Rails.env.to_s },
+            env: { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s },
           },
         },
       }
@@ -121,41 +134,104 @@ module ClaudeCli
       cmd
     end
 
-    # プロンプトは長くなるので標準入力で渡す。時間切れのときはプロセスグループごと止める
-    # （claude が起動した MCP サーバも残さない）
-    def execute(cmd, prompt, work_dir, relay = nil)
+    # プロンプトは長くなるので標準入力で渡す。出力がとぎれたとき（長考の宣言中を除く）と、経過時間の上限を
+    # 超えたときは、プロセスグループごと止める（claude が起動した MCP サーバも残さない）
+    def execute(cmd, prompt, work_dir, relay = nil, long_think: nil)
       Open3.popen3(*cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
         # ロケールに関係なく UTF-8 として読み書きする（LANG のない環境では ASCII として扱われ、日本語で壊れる）
         [stdin, stdout, stderr].each { |io| io.set_encoding(Encoding::UTF_8) }
-        out_reader = Thread.new do
-          out = +""
-          stdout.each_line do |line|
-            out << line
-            relay&.feed(line)
+        activity = Activity.new
+        readers = []
+        begin
+          readers << Thread.new do
+            out = +""
+            stdout.each_line do |line|
+              activity.touch
+              out << line
+              relay&.feed(line)
+            end
+            out
           end
-          out
-        end
-        err_reader = Thread.new { stderr.read }
-        stdin.write(prompt)
-        stdin.close
+          readers << Thread.new { stderr.read }
+          stdin.write(prompt)
+          stdin.close
 
-        unless wait_thr.join(@timeout)
-          kill_group(wait_thr.pid)
-          raise Error, "#{@timeout}秒たっても終わらなかったので止めました"
+          watch(wait_thr, activity, relay, long_think)
+          [readers[0].value, readers[1].value, wait_thr.value]
+        ensure
+          # 止めたとき・例外のとき: 残ったプロセスと読み取りのスレッドを片づける
+          if wait_thr.alive?
+            kill_group(wait_thr)
+            readers.each { |t| t.join(1) || t.kill }
+          end
         end
-
-        [out_reader.value, err_reader.value, wait_thr.value]
       end
     rescue Errno::ENOENT
       raise Error, "#{@command} コマンドが見つかりません"
     end
 
-    def kill_group(pid)
-      Process.kill("TERM", -pid)
-      sleep 2
-      Process.kill("KILL", -pid)
+    # 終わるまで見張る。止めるべきときは Error を上げる（プロセスは execute の ensure で止める）
+    def watch(wait_thr, activity, relay, long_think)
+      started = monotonic_now
+      announced = nil
+      until wait_thr.join(@poll_interval)
+        declaration = long_think&.read
+        if declaration && declaration != announced
+          announced = declaration
+          relay&.notify("長考中（〜#{declaration.minutes}分：#{declaration.reason}）")
+        end
+
+        if monotonic_now - started > @timeout
+          raise Error, "#{duration_text(@timeout)}たっても終わらなかったので止めました"
+        end
+        next if declaration && Time.now < declaration.until_time
+
+        idle = activity.idle_seconds
+        # 長考の期限が過ぎたばかりなら、そこから数え直す（期限の直後に止めない）
+        idle = [idle, Time.now - declaration.until_time].min if declaration
+        raise Error, "#{duration_text(@idle_timeout)}出力がなかったので止めました" if idle > @idle_timeout
+      end
+    end
+
+    def duration_text(seconds)
+      return "#{seconds / 3600}時間" if seconds >= 3600 && (seconds % 3600).zero?
+      return "#{seconds / 60}分" if seconds >= 60 && (seconds % 60).zero?
+
+      "#{seconds}秒"
+    end
+
+    def monotonic_now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+
+    def kill_group(wait_thr)
+      Process.kill("TERM", -wait_thr.pid)
+      wait_thr.join(2)
+      Process.kill("KILL", -wait_thr.pid)
     rescue Errno::ESRCH
       nil
+    end
+
+    # 最後に出力があった時刻（読み取りのスレッドが書き、見張る側が読む）
+    class Activity
+      def initialize
+        @mutex = Mutex.new
+        @last = now
+      end
+
+      def touch
+        @mutex.synchronize { @last = now }
+      end
+
+      def idle_seconds
+        now - @mutex.synchronize { @last }
+      end
+
+      private
+
+      def now
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      end
     end
 
     # stream-json を1行ずつ受け取り、ツールを使う前に書いた文を途中経過として渡す。
@@ -168,9 +244,21 @@ module ClaudeCli
       def initialize(callback)
         @callback = callback
         @pending = []
+        @mutex = Mutex.new
       end
 
       def feed(line)
+        @mutex.synchronize { feed_line(line) }
+      end
+
+      # 出力とは別に、知らせたいことを途中経過として渡す（長考の宣言など）
+      def notify(text)
+        @mutex.synchronize { deliver([text]) }
+      end
+
+      private
+
+      def feed_line(line)
         return unless line.strip.start_with?("{")
 
         m = JSON.parse(line)
@@ -192,11 +280,13 @@ module ClaudeCli
         nil
       end
 
-      private
-
       def flush
         texts = @pending
         @pending = []
+        deliver(texts)
+      end
+
+      def deliver(texts)
         texts.each { |text| @callback.call(text) }
       rescue => e
         Rails.logger.warn("[ClaudeCli] progress callback failed: #{e.message}")
