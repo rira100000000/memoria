@@ -210,10 +210,106 @@ RSpec.describe ClaudeCli::Runner do
     }.to raise_error(ClaudeCli::Error, /終了コード 1: not logged in/)
   end
 
-  it "raises on timeout" do
-    expect {
-      run_with("sleep 5", timeout: 1)
-    }.to raise_error(ClaudeCli::Error, /1秒/)
+  describe "stopping" do
+    let(:result_line) { 'puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")' }
+
+    def elapsed
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      yield
+      Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    end
+
+    it "stops when there is no output for the idle timeout" do
+      time = elapsed do
+        expect {
+          run_with("sleep 10", idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+        }.to raise_error(ClaudeCli::Error, /1秒出力がなかったので止めました/)
+      end
+      expect(time).to be < 5
+    end
+
+    it "keeps running while the output goes on, even past the idle timeout" do
+      result = run_with(<<~RUBY, idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+        $stdout.sync = true
+        6.times { puts JSON.generate(type: "system", subtype: "progress"); sleep 0.4 }
+        #{result_line}
+      RUBY
+
+      expect(result.text).to eq("ok")
+    end
+
+    it "stops at the overall limit even while the output goes on" do
+      expect {
+        run_with(<<~RUBY, idle_timeout: 60, timeout: 1, poll_interval: 0.1)
+          $stdout.sync = true
+          50.times { puts JSON.generate(type: "system", subtype: "progress"); sleep 0.2 }
+        RUBY
+      }.to raise_error(ClaudeCli::Error, /1秒たっても終わらなかったので止めました/)
+    end
+
+    it "stops the processes the command started" do
+      pid_path = File.join(dir, "child.pid")
+      expect {
+        run_with(<<~RUBY, idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+          pid = spawn("sleep", "30")
+          File.write(#{pid_path.inspect}, pid.to_s)
+          Process.wait(pid)
+        RUBY
+      }.to raise_error(ClaudeCli::Error)
+
+      pid = File.read(pid_path).to_i
+      gone = 20.times.any? do
+        Process.kill(0, pid)
+        sleep 0.1
+        false
+      rescue Errno::ESRCH
+        true
+      end
+      expect(gone).to be(true)
+    end
+
+    it "passes where to declare a long think to the MCP server, in this run's own directory" do
+      run_with(<<~RUBY)
+        File.write(#{File.join(dir, "long_think_path").inspect}, config.dig("mcpServers", "memoria", "env", "MEMORIA_MCP_LONG_THINK"))
+        #{result_line}
+      RUBY
+
+      path = File.read(File.join(dir, "long_think_path"))
+      expect(File.dirname(path)).to eq(File.dirname(recorded["cwd"]))
+      expect(File.exist?(File.dirname(path))).to be(false) # 終わったら片づける
+    end
+
+    # MCP サーバの long_think ツールの代わりに、宣言のファイルを書く
+    def declare_long_think(minutes:, seconds:, reason:)
+      <<~RUBY
+        path = config.dig("mcpServers", "memoria", "env", "MEMORIA_MCP_LONG_THINK")
+        File.write(path, JSON.generate(until: Time.now.to_f + #{seconds}, minutes: #{minutes}, reason: #{reason.inspect}))
+      RUBY
+    end
+
+    it "does not stop without output while a long think is declared, and tells it as progress" do
+      progress = []
+      claude = fake_claude(<<~RUBY)
+        #{declare_long_think(minutes: 5, seconds: 300, reason: "ベンチマーク")}
+        sleep 2.5
+        #{result_line}
+      RUBY
+      result = described_class.new(command: claude, idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+        .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet",
+             on_progress: ->(text) { progress << text })
+
+      expect(result.text).to eq("ok")
+      expect(progress).to eq(["長考中（〜5分：ベンチマーク）"])
+    end
+
+    it "goes back to the idle timeout after the long think ends" do
+      expect {
+        run_with(<<~RUBY, idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+          #{declare_long_think(minutes: 1, seconds: 1, reason: "短い")}
+          sleep 10
+        RUBY
+      }.to raise_error(ClaudeCli::Error, /出力がなかったので止めました/)
+    end
   end
 
   it "raises when the command is missing" do
