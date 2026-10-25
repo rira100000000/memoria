@@ -61,6 +61,23 @@ claude -p の実行は、経過時間ではなく出力のとぎれで止めま�
 
 宣言は、MCP サーバが実行ごとの一時ディレクトリのファイル（環境変数 `MEMORIA_MCP_LONG_THINK` で渡す）に書き、memoria がそれを読みます。並行して動く実行どうしで混ざることはありません。
 
+### ツールの使用記録
+
+MCP サーバは、ツールが呼ばれるたびに `data/tool_calls/usage.jsonl` へ1行ずつ記録します（`ClaudeCli::ToolUsageLog`）。残すのは時刻（日本時間）、ツール名、場面（`chat` / `thinking_loop` / `wakeup`）、trigger・platform、予定から起きたときは予定の ID と目的、成否、所要時間（ms）です。引数や結果の本文は残しません。書き込みに失敗してもツールは動き続け、ログに警告だけ出します。組み込みツール（Web検索など）は MCP を通らないので、ここには入りません。
+
+```
+{"date":"2026-10-25","at":"2026-10-25T10:46:16+09:00","tool":"list_schedules","scene":"wakeup","trigger":"thinking_loop","character_id":1,"wakeup_id":42,"purpose":"朝の見回り","ok":true,"ms":6}
+```
+
+集計は `bin/tool_usage` で出します（Rails を読み込まずに動きます）。
+
+```bash
+bin/tool_usage                                     # 全期間
+bin/tool_usage --days 7                            # 今日を含む直近7日
+bin/tool_usage --since 2026-10-20 --until 2026-10-26
+bin/tool_usage --json                              # 集計を JSON で
+```
+
 ### 強いモデルへの切り替え
 
 会話では `use_deep_model` ツールが使えます。開発の相談や設計の壁打ちのような込み入った会話になったとキャラクターが判断すると、このツールを呼びます。その返答から `CLAUDE_CLI_DEEP_MODEL` で作り直し、会話が終わる（セッションが閉じる）まで強いモデルのまま続きます。
