@@ -29,4 +29,29 @@ RSpec.describe ChannelBinding, type: :model do
       expect(ChannelBinding.find_character_for_discord("unknown")).to be_nil
     end
   end
+
+  describe ".destinations" do
+    let(:character) { create(:character) }
+    let!(:news) { create(:channel_binding, character: character, purposes: ["default"]) }
+    let!(:chat) { create(:channel_binding, character: character, purposes: ["chat"]) }
+    let!(:dev) { create(:channel_binding, character: character, purposes: %w[dev system]) }
+
+    def destinations(to) = described_class.destinations(character.channel_bindings, to)
+
+    it "picks the channels for the kind" do
+      expect(destinations("chat")).to eq([chat])
+      expect(destinations("system")).to eq([dev])
+    end
+
+    it "uses the default channel without a kind, or for a kind no channel takes" do
+      expect(destinations(nil)).to eq([news])
+      expect(destinations("unknown")).to eq([news])
+    end
+
+    it "sends to every channel when none is the default" do
+      news.update!(purposes: [])
+
+      expect(destinations(nil)).to contain_exactly(news, chat, dev)
+    end
+  end
 end

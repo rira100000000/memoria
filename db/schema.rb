@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_22_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_25_190000) do
   create_table "admin_keys", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "key_hash", null: false
@@ -43,6 +43,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_090000) do
     t.integer "character_id", null: false
     t.datetime "created_at", null: false
     t.string "platform", default: "discord", null: false
+    t.json "purposes", default: [], null: false
     t.datetime "updated_at", null: false
     t.index ["character_id"], name: "index_channel_bindings_on_character_id"
     t.index ["platform", "channel_id"], name: "index_channel_bindings_on_platform_and_channel_id", unique: true
@@ -131,6 +132,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_090000) do
     t.string "action"
     t.integer "character_id", null: false
     t.datetime "created_at", null: false
+    t.string "destination"
     t.string "origin", default: "self", null: false
     t.string "purpose", null: false
     t.string "recurrence"

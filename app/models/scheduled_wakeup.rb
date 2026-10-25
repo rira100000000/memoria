@@ -91,6 +91,7 @@ class ScheduledWakeup < ApplicationRecord
   def summary_line(with_id: false)
     line = +"#{scheduled_at.in_time_zone(TIME_ZONE).strftime('%m/%d %H:%M')} — #{purpose}"
     line << " [#{action}]" if action.present?
+    line << " → #{destination}" if destination.present?
     notes = []
     notes << "繰り返し: #{recurrence}" if recurring?
     notes << "承認待ちの提案" if status == "proposed"

@@ -41,7 +41,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id)
 
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, "おはよう")
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "おはよう", to: nil)
     end
   end
 
@@ -87,7 +87,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた")
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた", to: nil)
     end
 
     it "adds the delivered message to the chat so that a reply continues it" do
@@ -104,8 +104,17 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, "反映できたよ")
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "反映できたよ", to: nil)
       expect(adapter).not_to have_received(:record_outgoing)
+    end
+
+    it "sends to the channel for the kind of wakeup" do
+      allow(adapter).to receive(:wake).and_return({ share_message: "反映できたよ", summary: nil })
+      wakeup = create(:scheduled_wakeup, character: character, action: "share", destination: "dev", scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "反映できたよ", to: "dev")
     end
 
     it "still finishes the wakeup when the message cannot be added to the chat" do
@@ -114,7 +123,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた")
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "まとめた", to: nil)
       expect(wakeup.reload.status).to eq("executed")
     end
 
@@ -125,7 +134,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
       expect(adapter).to have_received(:wake).once
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("予算"))
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("予算"), to: "system")
     end
 
     it "retries once, then notifies instead of failing silently" do
@@ -137,7 +146,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
       }.not_to raise_error
 
       expect(adapter).to have_received(:wake).twice
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("エラー"))
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("エラー"), to: "system")
     end
 
     it "notifies when the adapter does not support waking" do
@@ -146,7 +155,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
 
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
-      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("起床に対応していません"))
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, include("起床に対応していません"), to: "system")
     end
 
     describe "recurring" do
@@ -172,7 +181,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
           described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
           expect(adapter).not_to have_received(:wake)
-          expect(MessageDispatcher).to have_received(:dispatch).with(character, include("飛ばしました"))
+          expect(MessageDispatcher).to have_received(:dispatch).with(character, include("飛ばしました"), to: "system")
           expect(wakeup.reload.scheduled_at).to eq(Time.zone.parse("2026-10-08 07:00"))
         end
       end

@@ -48,7 +48,7 @@ module ClaudeCli
 
         @last_notice_at[character.id] = now
       end
-      ::MessageDispatcher.dispatch(character, failure_notice(error, what: what))
+      ::MessageDispatcher.dispatch(character, failure_notice(error, what: what), to: ::ChannelBinding::SYSTEM)
     rescue => e
       Rails.logger.warn("[ClaudeCli] failure notice failed: #{e.message}")
     end

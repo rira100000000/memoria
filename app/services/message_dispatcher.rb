@@ -6,10 +6,11 @@ require "uri"
 class MessageDispatcher
   DISCORD_API_BASE = "https://discord.com/api/v10"
 
-  def self.dispatch(character, message)
+  # @param to [String, nil] メッセージの種類。それを受け持つチャンネルに送る（ChannelBinding#purposes）
+  def self.dispatch(character, message, to: nil)
     return if message.blank?
 
-    character.channel_bindings.discord.each do |binding|
+    ChannelBinding.destinations(character.channel_bindings.discord, to).each do |binding|
       send_to_discord(binding.channel_id, message)
     end
   end

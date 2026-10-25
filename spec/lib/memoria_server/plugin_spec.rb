@@ -125,6 +125,14 @@ RSpec.describe MemoriaServer::Plugin do
     end
   end
 
+  describe "#wake to a channel" do
+    it "sends the report to the channel for the kind" do
+      wakeup = test_plugin_class.new.wake(character, purpose: "作業の結果を伝える", to: "dev")
+
+      expect(wakeup.destination).to eq("dev")
+    end
+  end
+
   describe "#talk_to" do
     let(:plugin) { test_plugin_class.new }
     let(:friend) { create(:character, name: "トート") }

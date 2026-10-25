@@ -123,7 +123,7 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
       it "tells it as the next turn of the conversation, which already has the message in it" do
         expect(adapter.wake(character_id: character.id, wakeup: wakeup)).to eq({ share_message: "反映できたよ", summary: nil, recorded: true })
         expect(event_session).to have_received(:send_event).with("起きた理由: 作業を反映した。マスターに報告する。")
-        expect(ChatSession).to have_received(:new).with(character, hash_including(trigger_type: "thinking_loop"))
+        expect(ChatSession).to have_received(:new).with(character, hash_including(trigger_type: "thinking_loop", platform: :discord))
         expect(Thinking::Wake).not_to have_received(:run)
         expect(ConversationTimeoutJob).to have_been_enqueued.with(9, 6)
       end

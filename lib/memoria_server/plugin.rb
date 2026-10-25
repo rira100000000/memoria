@@ -46,7 +46,8 @@ module MemoriaServer
     # キャラクターを決まった時刻に起こす、定期の起床の宣言。
     # memoria はジョブのプロセスの起動時に、宣言を予定（ScheduledWakeup）にそろえる（MemoriaServer::Routines）。
     # key で同じ予定を見分けるので、中身を変えても予定は増えない。宣言をやめた予定は取り消される。
-    # @return [Array<Hash>] { key:, recurrence: (cron式), purpose:, action: (nil / "share"), remember: (Boolean) } の配列
+    # @return [Array<Hash>] { key:, recurrence: (cron式), purpose:, action: (nil / "share"), remember: (Boolean),
+    #   to: (省略可。伝えることの種類。それを受け持つチャンネルに送る) } の配列
     def routines(_character)
       []
     end
@@ -99,15 +100,18 @@ module MemoriaServer
     end
 
     # 連絡手段（Discord等）にそのまま送る。システムからのお知らせ向け
-    def notify(character, text)
-      ::MessageDispatcher.dispatch(character, text)
+    # @param to [String, nil] メッセージの種類。それを受け持つチャンネルに送る（ChannelBinding#purposes）
+    def notify(character, text, to: nil)
+      ::MessageDispatcher.dispatch(character, text, to: to)
     end
 
     # キャラクターを今すぐ起こし、目的に沿って考えさせてからユーザーに伝えさせる。
     # 長い作業が終わったときに、キャラ自身の言葉で報告させる用途。
     # 失敗しても予定の仕組みが通知する（action: "share"）。
-    def wake(character, purpose:, remember: false)
+    # @param to [String, nil] 伝えることの種類。それを受け持つチャンネルに送る（ChannelBinding#purposes）
+    def wake(character, purpose:, remember: false, to: nil)
       wakeup = character.scheduled_wakeups.create!(
+        destination: to,
         scheduled_at: Time.current,
         purpose: purpose,
         action: "share",
