@@ -82,7 +82,7 @@ RSpec.describe Thinking::Wake do
     2.times { expect { described_class.run(character) }.to raise_error(MemoriaServer::WakeSkipped) }
 
     expect(MessageDispatcher).to have_received(:dispatch).once
-      .with(character, "⚠️ memoria: claude -p が使えなかったので、思考ループを実行できませんでした（usage limit reached）")
+      .with(character, "⚠️ memoria: claude -p が使えなかったので、思考ループを実行できませんでした（usage limit reached）", to: "system")
   end
 
   it "leaves the notice to the wakeup when claude -p is unavailable for a wakeup" do

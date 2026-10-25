@@ -108,7 +108,8 @@ module MemoriaServer
         record = ::ChatSessionRecord.active.find_by(character: character, user: character.user)
         return nil unless record
 
-        session = ::ChatSession.new(character, record: record, trigger_type: "thinking_loop")
+        # 起きて話したことは連絡手段（Discord）に届くので、Discord で話しているときと同じツールを使う
+        session = ::ChatSession.new(character, record: record, trigger_type: "thinking_loop", platform: :discord)
         session.use_claude_cli? ? session : nil
       end
 

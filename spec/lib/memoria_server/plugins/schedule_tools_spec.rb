@@ -44,6 +44,46 @@ RSpec.describe MemoriaServer::Plugins::ScheduleTools do
     end
   end
 
+  describe ".add to a channel" do
+    it "keeps where to send for a one-shot schedule" do
+      result = described_class.add(character, time_text: "3時間後", purpose: "確認", to: "dev")
+
+      expect(ScheduledWakeup.find(result[:schedule_id]).destination).to eq("dev")
+    end
+
+    it "keeps where to send for a recurring schedule" do
+      result = described_class.add(character, time_text: nil, repeat: "0 9 * * *", purpose: "朝", to: "chat")
+
+      expect(ScheduledWakeup.find(result[:schedule_id]).destination).to eq("chat")
+    end
+
+    it "shows where it goes in the list" do
+      described_class.add(character, time_text: "3時間後", purpose: "確認", to: "dev")
+
+      expect(described_class.list(character)[:schedules]).to include("確認 → dev")
+    end
+  end
+
+  describe "prompt for the channels" do
+    let(:plugin) { MemoriaServer::Plugins::Schedule.new }
+
+    it "tells the kinds the character can send to" do
+      create(:channel_binding, character: character, purposes: %w[default])
+      create(:channel_binding, character: character, purposes: %w[dev system])
+      create(:channel_binding, character: character, purposes: %w[chat])
+
+      segment = plugin.prompt_segment(character, scene: :chat)
+      expect(segment).to include("dev, chat")
+      expect(segment).not_to include("system")
+    end
+
+    it "says nothing when no channel has a kind" do
+      create(:channel_binding, character: character)
+
+      expect(plugin.prompt_segment(character, scene: :chat)).to be_nil
+    end
+  end
+
   describe ".cancel" do
     it "cancels a pending schedule" do
       wakeup = create(:scheduled_wakeup, character: character)

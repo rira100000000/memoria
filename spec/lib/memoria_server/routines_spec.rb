@@ -93,4 +93,14 @@ RSpec.describe MemoriaServer::Routines do
 
     expect(sync[:created]).to be_empty
   end
+
+  context "with a channel for the routine" do
+    let(:routines) { [{ key: "own_time", recurrence: "0 14 * * *", purpose: "自分の時間", to: "chat" }] }
+
+    it "sends what it tells to that channel" do
+      sync
+
+      expect(character.scheduled_wakeups.find_by(routine_key: "routine_test_xyz:own_time").destination).to eq("chat")
+    end
+  end
 end

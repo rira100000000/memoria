@@ -24,6 +24,7 @@ module MemoriaServer
           purpose: routine[:purpose],
           action: routine[:action],
           remember: routine[:remember],
+          destination: routine[:to],
           recurrence: routine[:recurrence],
           origin: "user"  # キャラの持ち主が入れたプラグインの宣言なので、頼まれた予定と同じく失敗を必ず知らせる
         )
@@ -58,6 +59,7 @@ module MemoriaServer
         purpose: routine[:purpose].to_s,
         action: routine[:action].presence,
         remember: routine[:remember] == true,
+        to: routine[:to].presence&.to_s,
       }
     end
   end

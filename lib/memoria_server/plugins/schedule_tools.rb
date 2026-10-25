@@ -25,6 +25,7 @@ module MemoriaServer
                 purpose: { type: "STRING", description: "なぜ起きるか（例: 'ユーザーに朝の挨拶', '作業リマインダー'）" },
                 action: { type: "STRING", description: "何をするか（'share'=ユーザーに必ず伝える, 'think'=自由に考える, 省略=自由）" },
                 remember: { type: "BOOLEAN", description: "実行したことを記憶に残すか（省略時: 単発は残す、繰り返しは残さない）" },
+                to: { type: "STRING", description: "伝えることの種類。それを受け持つチャンネルに送る（使える種類はシステムプロンプトの「予定の送り先」）。省略すると既定のチャンネル" },
               },
               required: ["purpose"],
             },
@@ -67,7 +68,7 @@ module MemoriaServer
           list(character)
         when "add_schedule"
           add(character, time_text: args["time"], purpose: args["purpose"], action: args["action"],
-            repeat: args["repeat"], remember: args["remember"], autonomous: autonomous)
+            repeat: args["repeat"], remember: args["remember"], to: args["to"], autonomous: autonomous)
         when "cancel_schedule"
           cancel(character, args["schedule_id"], only_next: args["only_next"])
         when "approve_schedule"
@@ -90,10 +91,10 @@ module MemoriaServer
         end
       end
 
-      def self.add(character, time_text:, purpose:, action: nil, repeat: nil, remember: nil, autonomous: false)
+      def self.add(character, time_text:, purpose:, action: nil, repeat: nil, remember: nil, to: nil, autonomous: false)
         if repeat.present?
           return add_recurring(character, repeat: repeat, purpose: purpose, action: action,
-            remember: remember, autonomous: autonomous)
+            remember: remember, to: to, autonomous: autonomous)
         end
         return { error: "time か repeat のどちらかを指定してください" } if time_text.blank?
 
@@ -119,6 +120,7 @@ module MemoriaServer
           scheduled_at: clamped,
           purpose: purpose,
           action: action,
+          destination: to.presence,
           status: "pending",
           origin: autonomous ? "self" : "user",
           remember: remember.nil? ? true : remember
@@ -135,7 +137,7 @@ module MemoriaServer
         }
       end
 
-      def self.add_recurring(character, repeat:, purpose:, action:, remember:, autonomous:)
+      def self.add_recurring(character, repeat:, purpose:, action:, remember:, autonomous:, to: nil)
         cron = ScheduledWakeup.parse_recurrence(repeat)
         return { error: "繰り返しを解釈できませんでした: #{repeat}（cron式で指定してください。例: '0 7 * * *'）" } unless cron
         if cron.rough_frequency < ScheduledWakeup::MIN_RECURRING_INTERVAL
@@ -153,6 +155,7 @@ module MemoriaServer
           recurrence: cron.original,
           purpose: purpose,
           action: action,
+          destination: to.presence,
           status: needs_approval ? "proposed" : "pending",
           origin: autonomous ? "self" : "user",
           remember: remember.nil? ? false : remember

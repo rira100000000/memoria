@@ -84,7 +84,7 @@ class ThinkingLoopJob < ApplicationJob
     end
     return unless message
 
-    MessageDispatcher.dispatch(character, message)
+    MessageDispatcher.dispatch(character, message, to: wakeup&.destination)
     record_outgoing(character, message) unless result[:recorded]
   end
 
@@ -111,7 +111,8 @@ class ThinkingLoopJob < ApplicationJob
     Rails.logger.warn("[ThinkingLoopJob] Wakeup##{wakeup.id} not completed: #{reason}")
     return unless wakeup.notify_on_failure?
 
-    MessageDispatcher.dispatch(character, "⚠️ memoria: 予定「#{wakeup.purpose}」（#{format_time(due_at)}）について: #{reason}")
+    MessageDispatcher.dispatch(character, "⚠️ memoria: 予定「#{wakeup.purpose}」（#{format_time(due_at)}）について: #{reason}",
+      to: ChannelBinding::SYSTEM)
   end
 
   def format_time(time)
