@@ -44,6 +44,49 @@ RSpec.describe MemoriaServer::Plugins::ScheduleTools do
     end
   end
 
+  describe ".add with a date" do
+    around { |example| travel_to(Time.zone.parse("2026-10-26 00:06")) { example.run } }
+
+    it "schedules a time some days later on that day" do
+      result = described_class.add(character, time_text: "3日後の12時ごろ", purpose: "再評価")
+
+      expect(result[:scheduled_at]).to eq("2026-10-29 12:00")
+      expect(character.scheduled_wakeups.last.scheduled_at).to eq(Time.zone.parse("2026-10-29 12:00"))
+    end
+
+    it "schedules tomorrow, not today" do
+      result = described_class.add(character, time_text: "明日 14:23", purpose: "確認")
+      expect(result[:scheduled_at]).to eq("2026-10-27 14:23")
+    end
+
+    it "schedules an absolute date and time" do
+      result = described_class.add(character, time_text: "2026-10-28 09:00", purpose: "確認", autonomous: true)
+      expect(result[:scheduled_at]).to eq("2026-10-28 09:00")
+      expect(result[:note]).to be_nil
+    end
+
+    it "rejects a time that has passed instead of moving it" do
+      result = described_class.add(character, time_text: "2026-10-25 12:00", purpose: "確認")
+
+      expect(result[:error]).to include("過ぎた")
+      expect(character.scheduled_wakeups.count).to eq(0)
+    end
+
+    it "asks for a time when only a day is given" do
+      result = described_class.add(character, time_text: "明日", purpose: "確認")
+
+      expect(result[:error]).to include("時刻")
+      expect(character.scheduled_wakeups.count).to eq(0)
+    end
+
+    it "tells when the time was moved into range" do
+      result = described_class.add(character, time_text: "10日後", purpose: "遠い")
+
+      expect(result[:scheduled_at]).to eq("2026-11-02 00:06")
+      expect(result[:note]).to include("7日後")
+    end
+  end
+
   describe ".add to a channel" do
     it "keeps where to send for a one-shot schedule" do
       result = described_class.add(character, time_text: "3時間後", purpose: "確認", to: "dev")
