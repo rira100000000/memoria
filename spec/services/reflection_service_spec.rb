@@ -94,6 +94,26 @@ RSpec.describe ReflectionService do
     end
   end
 
+  describe "#build_reflection_prompt (private)" do
+    let(:service) { described_class.new(character) }
+    let(:prompt) { service.send(:build_reflection_prompt, "User: test") }
+
+    it "asks to include proper nouns in tags even when they are not the main topic" do
+      expect(prompt).to include("固有名詞")
+      expect(prompt).to include("モデル名、ツール名、ライブラリ名、人名、プロジェクト名、サービス名")
+      expect(prompt).to include("会話の主題でなくても必ず含めて")
+    end
+
+    it "asks to keep proper nouns as written in the conversation" do
+      expect(prompt).to include("会話中の表記のまま")
+    end
+
+    it "does not change the reading reflection prompt" do
+      reading_prompt = service.send(:build_reading_reflection_prompt, "User: test")
+      expect(reading_prompt).not_to include("会話中の表記のまま")
+    end
+  end
+
   describe "#parse_importance (private)" do
     let(:service) { described_class.new(character) }
 
