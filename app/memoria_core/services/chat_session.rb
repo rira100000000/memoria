@@ -72,8 +72,10 @@ class ChatSession
 
   # 会話ログは、すでに始まっている会話にだけ書く（思考ループの記録は思考ループのログに残っている）
   def append_outgoing(text)
-    @record.append_message("model", text)
-    @chat_logger.log_ai_message(text)
+    with_turn_lock do
+      @record.append_message("model", text)
+      @chat_logger.log_ai_message(text)
+    end
   end
 
   # claude -p で返答するか（MS のアダプタが、途中経過の返し方を選ぶのに使う）
@@ -84,6 +86,29 @@ class ChatSession
   # ユーザーメッセージを受けてAI応答を生成
   # @param on_progress [#call, nil] claude -p のとき、ツールを使う前に書いた文を途中経過として受け取る
   def send_message(user_message, on_progress: nil)
+    with_turn_lock { answer_message(user_message, on_progress: on_progress) }
+  end
+
+  # ユーザーの発言ではない出来事（任せた作業が終わった、予定の時刻になったなど）を、続いている会話の中で受けて話す。
+  # 会話の外で考えると、会話で言ったことを知らないまま同じ報告を繰り返したり、済んだ話を始め直したりする。
+  # 出来事そのものは履歴に入れず、話したことだけを入れる。claude -p でだけ使える
+  # @return [Hash] response: 伝える文（続けて動いた分も含む）
+  def send_event(event)
+    raise ArgumentError, "send_event needs the claude -p backend" unless use_claude_cli?
+
+    with_turn_lock do
+      @chat_logger.setup! unless @chat_logger.current_log_path
+      @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
+
+      system_instruction = build_system_instruction(build_context(event))
+      reply = send_via_claude(system_instruction, event: event)
+      @record.append_message("model", reply[:final])
+      @chat_logger.log_ai_message(reply[:final])
+      { response: reply[:shown] }
+    end
+  end
+
+  def answer_message(user_message, on_progress: nil)
     # ログファイルが未作成なら作成
     @chat_logger.setup! unless @chat_logger.current_log_path
     @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
@@ -163,6 +188,10 @@ class ChatSession
   def send_message_stream(user_message, tier: :main, &block)
     raise ArgumentError, "block required" unless block_given?
 
+    with_turn_lock { stream_message(user_message, tier: tier, &block) }
+  end
+
+  def stream_message(user_message, tier:, &block)
     @chat_logger.setup! unless @chat_logger.current_log_path
     @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
 
@@ -269,7 +298,39 @@ class ChatSession
     execute_tool(name, args)
   end
 
+  private :answer_message, :stream_message
+
+  # 1人のキャラクターは一度に1つのことしか話さない。ユーザーへの返答、出来事への応答、送った連絡の記録を順番に処理する。
+  # 同時に動くと、片方がもう片方の発言を知らないまま話し、履歴の保存でもう片方の発言を消すこともある。
+  # Discord・ジョブ・API は別のプロセスなので、ファイルロックで並べる
+  TURN_LOCK_WAIT = 30.minutes
+
+  class TurnBusy < StandardError; end
+
   private
+
+  def with_turn_lock
+    held = (Thread.current[:memoria_turn_locks] ||= [])
+    return yield if held.include?(@character.id)  # 同じスレッドの中で入れ子になったとき
+
+    dir = defined?(Rails) ? Rails.root.join("tmp", "locks") : File.join(Dir.tmpdir, "memoria-locks")
+    FileUtils.mkdir_p(dir)
+    File.open(File.join(dir, "chat-#{@character.id}.lock"), File::RDWR | File::CREAT) do |file|
+      deadline = Time.now + TURN_LOCK_WAIT
+      until file.flock(File::LOCK_EX | File::LOCK_NB)
+        raise TurnBusy, "#{@character.name}は別の返答をしていて、#{TURN_LOCK_WAIT.inspect}待っても終わりませんでした" if Time.now > deadline
+        sleep 0.5
+      end
+      held << @character.id
+      begin
+        # 待っている間にほかの発言が足されているかもしれないので、読み直してから話す
+        @record.reload if @record.persisted?
+        yield
+      ensure
+        held.delete(@character.id)
+      end
+    end
+  end
 
   DEEP_MODEL_TOOL = {
     name: "use_deep_model",
@@ -313,7 +374,7 @@ class ChatSession
   # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
 
   # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）
-  def send_via_claude(system_instruction, on_progress: nil)
+  def send_via_claude(system_instruction, on_progress: nil, event: nil)
     # 途中経過も会話ログに残す
     progress = on_progress && lambda { |text|
       text = filter_response(text)
@@ -324,7 +385,7 @@ class ChatSession
     earlier = []
     next_step = nil
     0.step do |continued|
-      reply = reply_once(system_instruction, next_step: next_step, on_progress: progress)
+      reply = reply_once(system_instruction, next_step: next_step, event: continued.zero? ? event : nil, on_progress: progress)
       unless reply[:next_action] == "continue" && continued < MAX_CONTINUATIONS
         return { final: reply[:text], shown: [*earlier, reply[:text]].join("\n\n") }
       end
@@ -337,12 +398,12 @@ class ChatSession
     end
   end
 
-  def reply_once(system_instruction, next_step:, on_progress:)
+  def reply_once(system_instruction, next_step:, on_progress:, event: nil)
     deep = @record.deep_mode
-    run = run_claude(system_instruction, deep: deep, next_step: next_step, on_progress: on_progress)
+    run = run_claude(system_instruction, deep: deep, next_step: next_step, event: event, on_progress: on_progress)
 
     # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
-    run = run_claude(system_instruction, deep: true, next_step: next_step, on_progress: on_progress) if !deep && @record.reload.deep_mode
+    run = run_claude(system_instruction, deep: true, next_step: next_step, event: event, on_progress: on_progress) if !deep && @record.reload.deep_mode
 
     # 決まった形で答えなかったときは、本文だけの返答として扱う
     answer = run.structured || {}
@@ -353,10 +414,10 @@ class ChatSession
     }
   end
 
-  def run_claude(system_instruction, deep:, next_step: nil, on_progress: nil)
+  def run_claude(system_instruction, deep:, next_step: nil, event: nil, on_progress: nil)
     run = ClaudeCli::Runner.new.run(
       system_prompt: system_instruction,
-      prompt: claude_prompt(next_step),
+      prompt: claude_prompt(next_step, event),
       json_schema: REPLY_SCHEMA,
       character: @character,
       scene: :chat,
@@ -373,16 +434,24 @@ class ChatSession
   end
 
   # claude -p は1回ごとに独立して動くので、これまでの会話を書き起こしてプロンプトに入れる。
-  # next_step があるときは、ユーザーのメッセージではなく、自分で決めた続きの作業で起こす
-  def claude_prompt(next_step = nil)
-    history = next_step ? messages : messages[0...-1]
+  # next_step があるときは、ユーザーのメッセージではなく、自分で決めた続きの作業で起こす。
+  # event があるときは、ユーザーのメッセージではなく、起きた出来事で起こす
+  def claude_prompt(next_step = nil, event = nil)
+    history = next_step || event ? messages : messages[0...-1]
     lines = []
     if history.any?
       lines << "これまでの会話:"
       history.each { |m| lines << "#{m[:role] == "user" ? "User" : llm_role_name}: #{m[:content]}" }
       lines << ""
     end
-    if next_step
+    if event
+      lines << "Userからの新しいメッセージはない。いま、次の出来事であなたが起こされた:"
+      lines << event
+      lines << ""
+      lines << "#{llm_role_name}として、上の会話の続きで、この出来事をUserに伝えてください。" \
+        "これまでの会話ですでに伝えたことは繰り返さず、新しく分かったことだけを伝える。" \
+        "会話の中ですでに済んだ話を、始め直さない。"
+    elsif next_step
       lines << "Userからの新しいメッセージはない。直前の返答で続けると決めた作業:"
       lines << next_step
       lines << ""

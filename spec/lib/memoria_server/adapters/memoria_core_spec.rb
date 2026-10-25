@@ -102,4 +102,62 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
 
     expect(ConversationTimeoutJob).to have_been_enqueued.with(7, 4)
   end
+
+  describe "#wake" do
+    let(:event_session) { instance_double(ChatSession, use_claude_cli?: true, record: instance_double(ChatSessionRecord, id: 9, message_count: 6)) }
+
+    def wakeup(**overrides)
+      { purpose: "作業を反映した。マスターに報告する。", action: "share", recurrence: nil, due_at: Time.current, remember: false }.merge(overrides)
+    end
+
+    before do
+      allow(Thinking::Wake).to receive(:run).and_return({ share_message: "考えた", summary: "まとめ" })
+      allow(ChatSession).to receive(:new).and_return(event_session)
+      allow(event_session).to receive(:send_event).and_return({ response: "反映できたよ" })
+      allow(ApiBudget).to receive(:can_spend?).and_return(true)
+    end
+
+    context "while talking with the user" do
+      before { create(:chat_session_record, character: character, user: character.user) }
+
+      it "tells it as the next turn of the conversation, which already has the message in it" do
+        expect(adapter.wake(character_id: character.id, wakeup: wakeup)).to eq({ share_message: "反映できたよ", summary: nil, recorded: true })
+        expect(event_session).to have_received(:send_event).with("起きた理由: 作業を反映した。マスターに報告する。")
+        expect(ChatSession).to have_received(:new).with(character, hash_including(trigger_type: "thinking_loop"))
+        expect(Thinking::Wake).not_to have_received(:run)
+        expect(ConversationTimeoutJob).to have_been_enqueued.with(9, 6)
+      end
+
+      it "thinks on its own for wakeups that do not tell the user" do
+        adapter.wake(character_id: character.id, wakeup: wakeup(action: "think"))
+
+        expect(Thinking::Wake).to have_received(:run)
+        expect(event_session).not_to have_received(:send_event)
+      end
+
+      it "thinks on its own when the conversation is not with claude -p" do
+        allow(event_session).to receive(:use_claude_cli?).and_return(false)
+
+        expect(adapter.wake(character_id: character.id, wakeup: wakeup)).to eq({ share_message: "考えた", summary: "まとめ" })
+      end
+
+      it "does not wake when the budget is exceeded" do
+        allow(ApiBudget).to receive(:can_spend?).and_return(false)
+
+        expect { adapter.wake(character_id: character.id, wakeup: wakeup) }.to raise_error(MemoriaServer::WakeSkipped, include("予算"))
+        expect(event_session).not_to have_received(:send_event)
+      end
+
+      it "skips when claude -p cannot be used" do
+        allow(event_session).to receive(:send_event).and_raise(ClaudeCli::Error, "usage limit reached")
+
+        expect { adapter.wake(character_id: character.id, wakeup: wakeup) }.to raise_error(MemoriaServer::WakeSkipped, include("usage limit reached"))
+      end
+    end
+
+    it "thinks on its own when no conversation is going on" do
+      expect(adapter.wake(character_id: character.id, wakeup: wakeup)).to eq({ share_message: "考えた", summary: "まとめ" })
+      expect(event_session).not_to have_received(:send_event)
+    end
+  end
 end

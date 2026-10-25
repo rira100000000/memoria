@@ -98,6 +98,16 @@ RSpec.describe ThinkingLoopJob, type: :job do
       expect(adapter).to have_received(:record_outgoing).with(character_id: character.id, text: "まとめた")
     end
 
+    it "does not add the message to the chat again when the adapter already did" do
+      allow(adapter).to receive(:wake).and_return({ share_message: "反映できたよ", summary: nil, recorded: true })
+      wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
+
+      described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
+
+      expect(MessageDispatcher).to have_received(:dispatch).with(character, "反映できたよ")
+      expect(adapter).not_to have_received(:record_outgoing)
+    end
+
     it "still finishes the wakeup when the message cannot be added to the chat" do
       allow(adapter).to receive(:record_outgoing).and_raise("db locked")
       wakeup = create(:scheduled_wakeup, character: character, action: "share", scheduled_at: Time.current)
