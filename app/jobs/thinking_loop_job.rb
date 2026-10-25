@@ -85,7 +85,7 @@ class ThinkingLoopJob < ApplicationJob
     return unless message
 
     MessageDispatcher.dispatch(character, message)
-    record_outgoing(character, message)
+    record_outgoing(character, message) unless result[:recorded]
   end
 
   def wakeup_payload(wakeup, due_at)

@@ -64,8 +64,22 @@ module MemoriaServer
         end
       end
 
+      # 伝える予定で起きたとき、ユーザーと話している最中なら、思考ループではなくその会話の続きとして話す。
+      # 思考ループは会話の一部しか見ないので、会話で言ったことを繰り返したり、済んだ話を始め直したりする
       def wake(character_id:, wakeup: nil)
-        ::Thinking::Wake.run(Character.find(character_id), wakeup: wakeup)
+        character = Character.find(character_id)
+        session = wakeup && wakeup[:action] == "share" && conversation_for_event(character)
+        return ::Thinking::Wake.run(character, wakeup: wakeup) unless session
+
+        raise MemoriaServer::WakeSkipped, ::Thinking::Wake::BUDGET_EXCEEDED unless ::ApiBudget.can_spend?(character.user, "thinking_loop")
+
+        begin
+          result = session.send_event("起きた理由: #{wakeup[:purpose]}")
+        rescue ::ClaudeCli::Error => e
+          raise MemoriaServer::WakeSkipped, "claude -p が使えませんでした（#{e.message}）"
+        end
+        schedule_timeout(session.record)
+        { share_message: result[:response].presence, summary: nil, recorded: true }
       end
 
       def recall(character_id:, query:)
@@ -88,6 +102,15 @@ module MemoriaServer
       end
 
       private
+
+      # 続いている会話。claude -p で話していないときは、出来事を会話の中で受けられないので nil
+      def conversation_for_event(character)
+        record = ::ChatSessionRecord.active.find_by(character: character, user: character.user)
+        return nil unless record
+
+        session = ::ChatSession.new(character, record: record, trigger_type: "thinking_loop")
+        session.use_claude_cli? ? session : nil
+      end
 
       # 経路（Discord など）は、プラグインがツールを出し分けたり、プロンプトに会話の場所を書いたりするのに使う
       def build_session(character, context = {})

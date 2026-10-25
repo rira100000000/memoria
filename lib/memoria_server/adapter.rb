@@ -49,7 +49,8 @@ module MemoriaServer
     # @param wakeup [Hash, nil] 予定から起きたときの予定の内容。予定なしの思考ループでは nil
     #   { id: Integer（予定の ID）, purpose: String, action: String|nil ("share" なら必ず伝える予定), recurrence: String|nil,
     #     due_at: Time（予定の時刻）, remember: Boolean（起きて考えたことを記憶に残すか） }
-    # @return [Hash] { share_message: String|nil（ユーザーに伝えたいこと）, summary: String|nil（やったことのまとめ） }
+    # @return [Hash] { share_message: String|nil（ユーザーに伝えたいこと）, summary: String|nil（やったことのまとめ）,
+    #   recorded: Boolean（省略可。share_message をアダプタがもう会話の履歴に入れたなら true。memoria は record_outgoing を呼ばない） }
     def wake(character_id:, wakeup: nil)
       raise WakeSkipped, "このキャラクターのアダプタ（#{self.class.name}）は起床に対応していません"
     end

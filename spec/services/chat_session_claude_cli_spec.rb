@@ -193,6 +193,71 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(names.call).not_to include("use_deep_model")
   end
 
+  describe "#send_event" do
+    it "answers an event in the conversation, seeing everything said so far" do
+      long_report = "作業が終わったよ。" + "中身の説明。" * 100
+      record.update!(messages: [{ "role" => "user", "content" => "直して" }, { "role" => "model", "content" => long_report }])
+      allow(runner).to receive(:run).and_return(structured_reply("反映できたよ", "wait_for_user"))
+
+      result = session.send_event("起きた理由: 反映した")
+
+      expect(result[:response]).to eq("反映できたよ")
+      expect(record.reload.messages.map { |m| m["content"] }).to eq(["直して", long_report, "反映できたよ"])
+      expect(runner).to have_received(:run).with(hash_including(
+        prompt: a_string_including("User: 直して", "アオイ: #{long_report}", "次の出来事であなたが起こされた:\n起きた理由: 反映した",
+          "すでに伝えたことは繰り返さず")
+      ))
+    end
+
+    it "keeps going in the conversation when the character chose to continue" do
+      replies = [structured_reply("確かめてくる", "continue", "CI を見る"), structured_reply("CI も通ったよ", "wait_for_user")]
+      allow(runner).to receive(:run) { replies.shift }
+
+      result = session.send_event("起きた理由: 反映した")
+
+      expect(result[:response]).to eq("確かめてくる\n\nCI も通ったよ")
+      expect(record.reload.messages.map { |m| m["content"] }).to eq(["確かめてくる", "CI も通ったよ"])
+      expect(runner).to have_received(:run).with(hash_including(prompt: a_string_including("続けると決めた作業:\nCI を見る"))).once
+    end
+
+    it "lets claude -p errors through for the caller to handle" do
+      allow(runner).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
+
+      expect { session.send_event("起きた理由: 反映した") }.to raise_error(ClaudeCli::Error)
+      expect(record.reload.messages).to eq([])
+    end
+  end
+
+  describe "turns of one character" do
+    it "reads the conversation again after waiting for the other turn" do
+      stale = described_class.new(character, record: ChatSessionRecord.find(record.id), llm_client: llm_client)
+      ChatSessionRecord.find(record.id).append_message("model", "先に終わった報告")
+      allow(runner).to receive(:run).and_return(structured_reply("続きだね", "wait_for_user"))
+
+      stale.send_message("やあ")
+
+      expect(runner).to have_received(:run).with(hash_including(prompt: a_string_including("アオイ: 先に終わった報告")))
+    end
+
+    it "waits until the other turn of the same character ends" do
+      lock_path = Rails.root.join("tmp", "locks", "chat-#{character.id}.lock")
+      FileUtils.mkdir_p(File.dirname(lock_path))
+      allow(runner).to receive(:run).and_return(structured_reply("こんにちは", "wait_for_user"))
+      order = []
+
+      File.open(lock_path, File::RDWR | File::CREAT) do |other|
+        other.flock(File::LOCK_EX)
+        thread = Thread.new { session.send_message("やあ"); order << :answered }
+        sleep 1
+        order << :other_turn_ended
+        other.flock(File::LOCK_UN)
+        thread.join(5)
+      end
+
+      expect(order).to eq(%i[other_turn_ended answered])
+    end
+  end
+
   it "says it could not answer when claude -p fails, without falling back to Gemini" do
     allow(runner).to receive(:run).and_raise(ClaudeCli::Error, "usage limit reached")
     allow(llm_client).to receive(:chat)
