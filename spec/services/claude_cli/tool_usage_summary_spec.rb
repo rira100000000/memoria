@@ -9,7 +9,7 @@ RSpec.describe ClaudeCli::ToolUsageSummary do
       { date: "2026-10-20", at: "2026-10-20T09:00:00+09:00", tool: "search_memory", scene: "chat", ok: true, ms: 100 },
       { date: "2026-10-22", at: "2026-10-22T10:00:00+09:00", tool: "search_memory", scene: "wakeup", wakeup_id: 3, purpose: "朝の見回り", ok: false, ms: 300 },
       { date: "2026-10-23", at: "2026-10-23T11:00:00+09:00", tool: "vault_read", scene: "thinking_loop", ok: true, ms: 50 },
-      { date: "2026-10-25", at: "2026-10-25T12:30:00+09:00", tool: "search_memory", scene: "chat", ok: true, ms: 200 },
+      { date: "2026-10-25", at: "2026-10-25T12:30:00+09:00", tool: "search_memory", scene: "chat", ok: true, ms: 200 }
     ]
   end
 
