@@ -48,3 +48,6 @@ __pycache__/
 # Ignore key files for decrypting credentials and more.
 /config/*.key
 
+
+# Local records (tool usage logs and the like)
+/data/

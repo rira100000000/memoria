@@ -90,6 +90,7 @@ class ThinkingLoopJob < ApplicationJob
 
   def wakeup_payload(wakeup, due_at)
     {
+      id: wakeup.id,
       purpose: wakeup.purpose,
       action: wakeup.action,
       recurrence: wakeup.recurrence,

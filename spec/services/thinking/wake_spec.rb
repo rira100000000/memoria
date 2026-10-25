@@ -31,6 +31,18 @@ RSpec.describe Thinking::Wake do
       snapshot: a_string_including("今回起きた理由: 朝の挨拶").and(a_string_including("必ず伝える")).and(a_string_including("繰り返しの予定"))))
   end
 
+  it "tells the thinker which wakeup it is, for the tool usage log" do
+    described_class.run(character, wakeup: wakeup(id: 12))
+
+    expect(Thinking::Thinker).to have_received(:run).with(hash_including(usage_context: { wakeup_id: 12, purpose: "朝の挨拶" }))
+  end
+
+  it "has no usage context without a wakeup" do
+    described_class.run(character)
+
+    expect(Thinking::Thinker).to have_received(:run).with(hash_including(usage_context: nil))
+  end
+
   it "tells the character when it woke up late" do
     described_class.run(character, wakeup: wakeup(due_at: 20.minutes.ago))
 

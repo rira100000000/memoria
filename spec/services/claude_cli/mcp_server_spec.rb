@@ -60,6 +60,49 @@ RSpec.describe ClaudeCli::McpServer do
     expect(errored[:isError]).to be(true)
   end
 
+  describe "usage log" do
+    let(:usage_path) { Rails.root.join("tmp", "tool_usage_#{SecureRandom.hex(4)}", "usage.jsonl").to_s }
+    let(:usage_log) { ClaudeCli::ToolUsageLog.new(path: usage_path, scene: "chat", trigger: "user_message", platform: "discord", character_id: 5) }
+    let(:server) { described_class.new(provider: provider, events_path: events_path, usage_log: usage_log) }
+
+    after { FileUtils.rm_rf(File.dirname(usage_path)) }
+
+    def usage_entries
+      File.readlines(usage_path).map { |l| JSON.parse(l) }
+    end
+
+    it "records each tool call without its arguments or result" do
+      server.handle(request(1, "tools/call", { name: "echo", arguments: { text: "秘密" } }))
+      server.handle(request(2, "tools/call", { name: "echo", arguments: { text: "bad" } }))
+      server.handle(request(3, "tools/call", { name: "echo", arguments: { text: "boom" } }))
+
+      entries = usage_entries
+      expect(entries.map { |e| e["ok"] }).to eq([true, false, false])
+      expect(entries.first).to include("tool" => "echo", "scene" => "chat", "trigger" => "user_message",
+        "platform" => "discord", "character_id" => 5)
+      expect(entries.first["ms"]).to be_a(Integer)
+      expect(File.read(usage_path)).not_to include("秘密")
+    end
+
+    it "does not record tools/list or other requests" do
+      server.handle(request(1, "tools/list"))
+      server.handle(request(2, "ping"))
+
+      expect(File.exist?(usage_path)).to be(false)
+    end
+
+    it "still answers when the usage log cannot be written" do
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(usage_path, "a", encoding: "utf-8").and_raise(Errno::EACCES)
+      allow(Rails.logger).to receive(:warn)
+
+      result = server.handle(request(1, "tools/call", { name: "echo", arguments: { text: "hi" } }))[:result]
+
+      expect(JSON.parse(result[:content].first[:text])).to eq("echoed" => "hi")
+      expect(Rails.logger).to have_received(:warn).with(a_string_including("ToolUsageLog"))
+    end
+  end
+
   it "rejects unknown methods and broken JSON" do
     expect(server.handle(request(6, "resources/list"))[:error][:code]).to eq(-32601)
     expect(server.handle("{oops")[:error][:code]).to eq(-32700)

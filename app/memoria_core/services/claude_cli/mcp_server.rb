@@ -6,11 +6,13 @@ module ClaudeCli
   #   tools                -> Gemini 形式のツール定義（functionDeclarations の中身）の配列
   #   call(name, args)     -> 実行結果の Hash
   # 実行したツールは events_path に JSON Lines で書き出す（呼び出し元が会話ログに使う）。
+  # usage_log（ToolUsageLog）を渡すと、ツールの呼び出しごとに名前・場面・成否・所要時間を残す。
   class McpServer
     PROTOCOL_VERSION = "2025-06-18"
 
-    def initialize(provider:, input: $stdin, output: $stdout, events_path: nil)
+    def initialize(provider:, input: $stdin, output: $stdout, events_path: nil, usage_log: nil)
       @provider = provider
+      @usage_log = usage_log
       @input = input
       @output = output
       @events_path = events_path
@@ -63,13 +65,15 @@ module ClaudeCli
     def call_tool(params)
       name = params["name"].to_s
       args = params["arguments"] || {}
-      tool_result = begin
-        @provider.call(name, args)
-      rescue => e
-        Rails.logger.error("[McpServer] #{name} failed: #{e.class}: #{e.message}")
-        { error: "ツールの実行に失敗しました（#{e.class}: #{e.message.to_s.truncate(200)}）" }
+      tool_result = measure(name) do
+        result = begin
+          @provider.call(name, args)
+        rescue => e
+          Rails.logger.error("[McpServer] #{name} failed: #{e.class}: #{e.message}")
+          { error: "ツールの実行に失敗しました（#{e.class}: #{e.message.to_s.truncate(200)}）" }
+        end
+        result.is_a?(Hash) ? result : { response: result.to_s }
       end
-      tool_result = { response: tool_result.to_s } unless tool_result.is_a?(Hash)
 
       record_event(name, args, tool_result)
 
@@ -78,6 +82,10 @@ module ClaudeCli
         content: [{ type: "text", text: JSON.generate(tool_result.except(:log, :participant)) }],
         isError: tool_result.key?(:error),
       }
+    end
+
+    def measure(name, &block)
+      @usage_log ? @usage_log.measure(name, &block) : yield
     end
 
     def record_event(name, args, tool_result)

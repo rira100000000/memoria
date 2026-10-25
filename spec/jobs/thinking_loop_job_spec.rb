@@ -53,7 +53,7 @@ RSpec.describe ThinkingLoopJob, type: :job do
       described_class.new.perform(character.id, wakeup.id, wakeup.scheduled_at.to_i)
 
       expect(adapter).to have_received(:wake).with(character_id: character.id, wakeup: {
-        purpose: "朝の挨拶", action: "share", recurrence: nil, due_at: wakeup.scheduled_at, remember: false,
+        id: wakeup.id, purpose: "朝の挨拶", action: "share", recurrence: nil, due_at: wakeup.scheduled_at, remember: false,
       })
     end
 
