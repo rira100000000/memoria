@@ -146,7 +146,7 @@ UI 側で過去の会話を表示したいケース（`GET /api/v1/sessions/:id/
 ```ruby
 def wake(character_id:, wakeup: nil)
   # wakeup は予定から起きたときだけ渡る。予定なしの思考ループでは nil
-  #   { purpose: "朝の挨拶", action: "share" | nil, recurrence: "0 7 * * *" | nil,
+  #   { id: 12（予定の ID）, purpose: "朝の挨拶", action: "share" | nil, recurrence: "0 7 * * *" | nil,
   #     due_at: Time, remember: true }
   # action が "share" の予定は、MS が必ず何かを送る（share_message が空なら summary を送る）
   { share_message: "おはよう", summary: "朝の挨拶をした" }

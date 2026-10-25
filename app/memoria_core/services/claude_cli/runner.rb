@@ -62,8 +62,9 @@ module ClaudeCli
     # @param trigger_type [String] ツール内の Gemini 呼び出し（埋め込みなど）を ApiUsageLog に記録するときの区分
     # @param on_progress [#call, nil] ツールを使う前に書いた文（「調べてみるね」など）を、終わるのを待たずに受け取る
     # @param json_schema [Hash, nil] 指定すると、この形で答えさせる（Result#structured に入る）
+    # @param usage_context [Hash, nil] ツールの使用記録（ToolUsageLog）に添える場面の情報（予定の { wakeup_id:, purpose: }）
     # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]、structured: json_schema の形の答え
-    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil)
+    def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil, usage_context: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
         long_think = LongThink.new(File.join(dir, "long_think.json"))
@@ -73,7 +74,7 @@ module ClaudeCli
         config_path = nil
         if character
           config_path = File.join(dir, "mcp.json")
-          File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path, long_think)))
+          File.write(config_path, JSON.generate(mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context)))
         end
 
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
@@ -93,16 +94,18 @@ module ClaudeCli
 
     private
 
-    def mcp_config(character, scene, platform, trigger_type, events_path, long_think)
+    def mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context = nil)
       args = ["--character", character.id.to_s, "--scene", scene.to_s]
       args += ["--trigger", trigger_type] if trigger_type
       args += ["--platform", platform.to_s] if platform
+      env = { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s }
+      env["MEMORIA_MCP_CONTEXT"] = JSON.generate(usage_context) if usage_context.present?
       {
         mcpServers: {
           memoria: {
             command: @mcp_command,
             args: args,
-            env: { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s },
+            env: env,
           },
         },
       }

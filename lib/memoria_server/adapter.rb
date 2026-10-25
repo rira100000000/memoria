@@ -47,7 +47,7 @@ module MemoriaServer
     # 実行しなかったときは MemoriaServer::WakeSkipped を raise する。それ以外の例外はやり直しの対象になる。
     #
     # @param wakeup [Hash, nil] 予定から起きたときの予定の内容。予定なしの思考ループでは nil
-    #   { purpose: String, action: String|nil ("share" なら必ず伝える予定), recurrence: String|nil,
+    #   { id: Integer（予定の ID）, purpose: String, action: String|nil ("share" なら必ず伝える予定), recurrence: String|nil,
     #     due_at: Time（予定の時刻）, remember: Boolean（起きて考えたことを記憶に残すか） }
     # @return [Hash] { share_message: String|nil（ユーザーに伝えたいこと）, summary: String|nil（やったことのまとめ） }
     def wake(character_id:, wakeup: nil)

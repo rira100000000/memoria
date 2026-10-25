@@ -45,6 +45,15 @@ RSpec.describe Thinking::Thinker, "with the claude -p backend" do
       prompt: a_string_including("今の状況")))
   end
 
+  it "passes the usage context to claude -p" do
+    allow(runner).to receive(:run).and_return(ClaudeCli::Runner::Result.new(text: final_text, tool_events: [], model: "sonnet"))
+
+    described_class.run(snapshot: "今の状況", character: character, core: core, health: {}, llm_client: llm_client,
+      usage_context: { wakeup_id: 3, purpose: "朝の見回り" })
+
+    expect(runner).to have_received(:run).with(hash_including(usage_context: { wakeup_id: 3, purpose: "朝の見回り" }))
+  end
+
   it "recalls memories from the current situation, as in a chat" do
     retriever = instance_double(MemoriaCore::ContextRetriever)
     allow(MemoriaCore::EmbeddingStore).to receive(:new).and_return(instance_double(MemoriaCore::EmbeddingStore, initialize!: nil))

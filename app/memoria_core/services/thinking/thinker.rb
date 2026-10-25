@@ -30,7 +30,8 @@ module Thinking
 
     MAX_TOOL_ROUNDS = 5
 
-    def self.run(snapshot:, character:, core:, health:, llm_client:)
+    # @param usage_context [Hash, nil] ツールの使用記録に添える場面の情報（ClaudeCli::Runner#run の usage_context）
+    def self.run(snapshot:, character:, core:, health:, llm_client:, usage_context: nil)
       prompt = build_prompt(character) + "\n\n" + snapshot
       plugin_segments = MemoriaServer::Plugin.prompt_segments(character, scene: :thinking)
       prompt += "\n\n" + plugin_segments if plugin_segments.present?
@@ -48,7 +49,7 @@ module Thinking
       # claude -p が使えないときは ClaudeCli::Error が上がる（Gemini で代わりに動くことはしない）
       if ClaudeCli.enabled?
         return run_with_claude(prompt: prompt, system_instruction: system_instruction,
-          character: character, llm_client: llm_client)
+          character: character, llm_client: llm_client, usage_context: usage_context)
       end
 
       run_with_gemini(prompt: prompt, system_instruction: system_instruction,
@@ -57,14 +58,15 @@ module Thinking
 
     # claude -p で考える。ツールは MCP サーバ（bin/memoria_mcp）が実行し、その記録を受け取って
     # Gemini の場合と同じ形のログにする
-    def self.run_with_claude(prompt:, system_instruction:, character:, llm_client:)
+    def self.run_with_claude(prompt:, system_instruction:, character:, llm_client:, usage_context: nil)
       run = ClaudeCli::Runner.new.run(
         system_prompt: system_instruction,
         prompt: prompt,
         character: character,
         scene: :thinking,
         model: ClaudeCli.model,
-        trigger_type: "thinking_loop"
+        trigger_type: "thinking_loop",
+        usage_context: usage_context
       )
 
       messages = []

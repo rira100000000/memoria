@@ -72,6 +72,20 @@ RSpec.describe ClaudeCli::Runner do
     server = JSON.parse(File.read(File.join(dir, "config.json"))).dig("mcpServers", "memoria")
     expect(server["command"]).to eq(Rails.root.join("bin/memoria_mcp").to_s)
     expect(server["args"]).to eq(["--character", character.id.to_s, "--scene", "thinking", "--trigger", "thinking_loop"])
+    expect(server["env"]).not_to have_key("MEMORIA_MCP_CONTEXT")
+  end
+
+  it "passes the usage context to the MCP server" do
+    path = fake_claude(<<~RUBY)
+      File.write(#{File.join(dir, "config.json").inspect}, JSON.generate(config))
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")
+    RUBY
+    described_class.new(command: path)
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :thinking, model: "sonnet", trigger_type: "thinking_loop",
+           usage_context: { wakeup_id: 7, purpose: "朝の見回り" })
+
+    env = JSON.parse(File.read(File.join(dir, "config.json"))).dig("mcpServers", "memoria", "env")
+    expect(JSON.parse(env["MEMORIA_MCP_CONTEXT"])).to eq("wakeup_id" => 7, "purpose" => "朝の見回り")
   end
 
   it "records built-in web searches as tool events" do

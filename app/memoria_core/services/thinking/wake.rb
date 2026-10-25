@@ -39,11 +39,17 @@ module Thinking
     private
 
     def think(snapshot:, core:, health:, llm_client:)
-      Thinking::Thinker.run(snapshot: snapshot, character: @character, core: core, health: health, llm_client: llm_client)
+      Thinking::Thinker.run(snapshot: snapshot, character: @character, core: core, health: health, llm_client: llm_client,
+        usage_context: usage_context)
     rescue ClaudeCli::Error => e
       # 利用枠切れなどはやり直しても同じ。予定なしの思考ループは知らせる手段がほかにないので、ここで知らせる
       ClaudeCli.notify_failure(@character, e, what: "思考ループを実行") unless @wakeup
       raise MemoriaServer::WakeSkipped, "claude -p が使えませんでした（#{e.message}）"
+    end
+
+    # ツールの使用記録に添える、どの予定で起きたか
+    def usage_context
+      @wakeup && { wakeup_id: @wakeup[:id], purpose: @wakeup[:purpose] }.compact
     end
 
     def wakeup_context

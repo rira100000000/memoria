@@ -1,0 +1,35 @@
+#!/usr/bin/env ruby
+# MCP ツールの使用記録（data/tool_calls/usage.jsonl）を、ツール名ごとの回数・失敗・平均時間・最終使用・場面別に数える。
+#
+#   bin/tool_usage                         # 全期間
+#   bin/tool_usage --days 7                # 今日を含む直近7日（日本時間）
+#   bin/tool_usage --since 2026-10-20 --until 2026-10-26
+#   bin/tool_usage --file path/to/usage.jsonl
+#   bin/tool_usage --json                  # 集計を JSON で出す
+
+require "optparse"
+require_relative "../app/memoria_core/services/claude_cli/tool_usage_summary"
+
+options = { file: File.expand_path("../data/tool_calls/usage.jsonl", __dir__) }
+OptionParser.new do |o|
+  o.on("--since DATE", "この日から（YYYY-MM-DD）") { |v| options[:since] = Date.parse(v) }
+  o.on("--until DATE", "この日まで（YYYY-MM-DD）") { |v| options[:until] = Date.parse(v) }
+  o.on("--days N", Integer, "今日を含む直近 N 日") { |v| options[:days] = v }
+  o.on("--file PATH", "記録のファイル") { |v| options[:file] = v }
+  o.on("--json", "JSON で出す") { options[:json] = true }
+end.parse!
+
+if options[:days]
+  today = Time.now.getlocal("+09:00").to_date
+  options[:since] = today - (options[:days] - 1)
+end
+
+summary = ClaudeCli::ToolUsageSummary.load(options[:file], since: options[:since], until_date: options[:until])
+if options[:json]
+  puts JSON.pretty_generate(
+    tools: summary.rows.map { |r| r.to_h.except(:total_ms).merge(average_ms: r.average_ms) },
+    wakeup_purposes: summary.purposes.to_h
+  )
+else
+  puts summary.to_text
+end

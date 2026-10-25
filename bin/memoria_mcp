@@ -5,6 +5,8 @@
 #
 # 実行したツールの記録は環境変数 MEMORIA_MCP_EVENTS のファイルに書き出す。
 # 環境変数 MEMORIA_MCP_LONG_THINK があれば long_think ツールを足し、長考の宣言をそのファイルに書く。
+# ツールの呼び出しごとの記録（名前・場面・成否・所要時間）は data/tool_calls/usage.jsonl に残す
+# （ClaudeCli::ToolUsageLog）。予定から起きたときは、環境変数 MEMORIA_MCP_CONTEXT（JSON）の予定の情報も添える。
 
 require "optparse"
 
@@ -33,8 +35,22 @@ provider = ClaudeCli::ToolProvider.build(
   long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence
 )
 
+usage_context = begin
+  JSON.parse(ENV["MEMORIA_MCP_CONTEXT"].presence || "{}")
+rescue JSON::ParserError
+  {}
+end
+usage_log = ClaudeCli::ToolUsageLog.new(
+  scene: options[:scene],
+  trigger: options[:trigger],
+  platform: options[:platform],
+  character_id: character.id,
+  context: usage_context
+)
+
 ClaudeCli::McpServer.new(
   provider: provider,
   output: protocol_out,
-  events_path: ENV["MEMORIA_MCP_EVENTS"]
+  events_path: ENV["MEMORIA_MCP_EVENTS"],
+  usage_log: usage_log
 ).run
