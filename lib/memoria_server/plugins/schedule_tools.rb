@@ -1,10 +1,11 @@
+require_relative "schedule_time"
+
 module MemoriaServer
   module Plugins
     # 予定のプラグイン（Schedule）のツール
     # キャラクターが自分の予定を確認・追加・削除できる
     class ScheduleTools
       MINIMUM_INTERVAL = 10.minutes
-      MAXIMUM_INTERVAL = 7.days
 
       # @param autonomous [Boolean] 自律行動向けの定義か（trueなら承認ツールを含めない）
       def self.definitions(autonomous: false)
@@ -16,11 +17,20 @@ module MemoriaServer
           },
           {
             name: "add_schedule",
-            description: "新しいスケジュールを追加する。単発なら time、毎日・毎週など繰り返すなら repeat を指定する。",
+            description: "新しいスケジュールを追加する。単発なら time、毎日・毎週など繰り返すなら repeat を指定する。" \
+              "日時はすべて日本時間（Asia/Tokyo）。登録された日時は結果の scheduled_at で確かめる。",
             parameters: {
               type: "OBJECT",
               properties: {
-                time: { type: "STRING", description: "単発の予定のとき、いつ（例: '3時間後', '明日の朝8時', '21:00'）" },
+                time: {
+                  type: "STRING",
+                  description: "単発の予定のとき、いつ。日本時間（Asia/Tokyo）。書ける形: " \
+                    "相対（'30分後', '3時間後', '3日後'=今からちょうど3日後, '3日後の12時'）、" \
+                    "日付の語と時刻（'明日 14:23', '明日の朝'=7時, '明後日の15時半', '今日 21:00'）、" \
+                    "日時そのもの（'2026-10-29 12:00', '10/29 12:00', '10月29日 12時'）、" \
+                    "時刻だけ（'21:00', '午後3時'。過ぎていれば翌日）。" \
+                    "日付を書くときは時刻も書く。過ぎた日時は登録できない。先の日時は何日後でも指定どおりに入る",
+                },
                 repeat: { type: "STRING", description: "繰り返しの予定のとき、cron式（例: '0 7 * * *'=毎朝7時, '0 9 * * 1'=毎週月曜9時）。時刻は日本時間。最短間隔は1時間" },
                 purpose: { type: "STRING", description: "なぜ起きるか（例: 'ユーザーに朝の挨拶', '作業リマインダー'）" },
                 action: { type: "STRING", description: "何をするか（'share'=ユーザーに必ず伝える, 'think'=自由に考える, 省略=自由）" },
@@ -98,12 +108,19 @@ module MemoriaServer
         end
         return { error: "time か repeat のどちらかを指定してください" } if time_text.blank?
 
-        wakeup_at = parse_time(time_text)
-        return { error: "時間を解釈できませんでした: #{time_text}" } unless wakeup_at
+        begin
+          wakeup_at = ScheduleTime.parse(time_text)
+        rescue ScheduleTime::Error => e
+          return { error: e.message }
+        end
+        return { error: "時間を解釈できませんでした: #{time_text}（例: '3時間後', '明日 14:00', '2026-10-29 12:00'）" } unless wakeup_at
+        if wakeup_at <= Time.current
+          return { error: "過ぎた日時です: #{time_text}（#{format_time(wakeup_at)}。今は #{format_time(Time.current)}）" }
+        end
 
-        # ガードレール（自律行動は最短10分、ユーザー指示は最短1分）
+        # ガードレール（自律行動は最短10分、ユーザー指示は最短1分）。先のほうには上限を設けない
         min_interval = autonomous ? MINIMUM_INTERVAL : 1.minute
-        clamped = wakeup_at.clamp(min_interval.from_now, MAXIMUM_INTERVAL.from_now)
+        clamped = [wakeup_at, min_interval.from_now].max
 
         # 近接時間帯（±5分）に既存の単発の予定があれば重複として拒否
         # 繰り返しの予定とは比べない（毎朝7時の予定があっても「明日の朝」を入れられるように）
@@ -129,12 +146,16 @@ module MemoriaServer
         # 思考ループをスケジュール
         wakeup.enqueue!
 
-        {
+        result = {
           success: true,
           schedule_id: wakeup.id,
-          scheduled_at: clamped.in_time_zone("Asia/Tokyo").strftime("%Y-%m-%d %H:%M"),
+          scheduled_at: format_time(clamped),
           purpose: purpose,
         }
+        if clamped - wakeup_at > 1.minute
+          result[:note] = "指定の #{format_time(wakeup_at)} は近すぎる（#{autonomous ? "10分" : "1分"}後より前）ので、#{format_time(clamped)} にした"
+        end
+        result
       end
 
       def self.add_recurring(character, repeat:, purpose:, action:, remember:, autonomous:, to: nil)
@@ -213,33 +234,8 @@ module MemoriaServer
         }
       end
 
-      private_class_method def self.parse_time(text)
-        now = Time.current
-
-        if (match = text.match(/(\d+)\s*時間後/))
-          return now + match[1].to_i.hours
-        end
-        if (match = text.match(/(\d+)\s*分後/))
-          return now + match[1].to_i.minutes
-        end
-        if text.match?(/明日の朝/)
-          return (now + 1.day).change(hour: 7)
-        end
-        if (match = text.match(/明日.*?(\d{1,2})時/))
-          return (now + 1.day).change(hour: match[1].to_i)
-        end
-        if (match = text.match(/(\d{1,2}):(\d{2})/))
-          target = now.change(hour: match[1].to_i, min: match[2].to_i)
-          target += 1.day if target < now
-          return target
-        end
-        if (match = text.match(/(\d{1,2})時/))
-          target = now.change(hour: match[1].to_i)
-          target += 1.day if target < now
-          return target
-        end
-
-        nil
+      private_class_method def self.format_time(time)
+        time.in_time_zone("Asia/Tokyo").strftime("%Y-%m-%d %H:%M")
       end
     end
   end
