@@ -6,7 +6,6 @@ module MemoriaServer
     # キャラクターが自分の予定を確認・追加・削除できる
     class ScheduleTools
       MINIMUM_INTERVAL = 10.minutes
-      MAXIMUM_INTERVAL = 7.days
 
       # @param autonomous [Boolean] 自律行動向けの定義か（trueなら承認ツールを含めない）
       def self.definitions(autonomous: false)
@@ -30,7 +29,7 @@ module MemoriaServer
                     "日付の語と時刻（'明日 14:23', '明日の朝'=7時, '明後日の15時半', '今日 21:00'）、" \
                     "日時そのもの（'2026-10-29 12:00', '10/29 12:00', '10月29日 12時'）、" \
                     "時刻だけ（'21:00', '午後3時'。過ぎていれば翌日）。" \
-                    "日付を書くときは時刻も書く。過ぎた日時は登録できない。先は7日後まで",
+                    "日付を書くときは時刻も書く。過ぎた日時は登録できない。先の日時は何日後でも指定どおりに入る",
                 },
                 repeat: { type: "STRING", description: "繰り返しの予定のとき、cron式（例: '0 7 * * *'=毎朝7時, '0 9 * * 1'=毎週月曜9時）。時刻は日本時間。最短間隔は1時間" },
                 purpose: { type: "STRING", description: "なぜ起きるか（例: 'ユーザーに朝の挨拶', '作業リマインダー'）" },
@@ -119,9 +118,9 @@ module MemoriaServer
           return { error: "過ぎた日時です: #{time_text}（#{format_time(wakeup_at)}。今は #{format_time(Time.current)}）" }
         end
 
-        # ガードレール（自律行動は最短10分、ユーザー指示は最短1分）
+        # ガードレール（自律行動は最短10分、ユーザー指示は最短1分）。先のほうには上限を設けない
         min_interval = autonomous ? MINIMUM_INTERVAL : 1.minute
-        clamped = wakeup_at.clamp(min_interval.from_now, MAXIMUM_INTERVAL.from_now)
+        clamped = [wakeup_at, min_interval.from_now].max
 
         # 近接時間帯（±5分）に既存の単発の予定があれば重複として拒否
         # 繰り返しの予定とは比べない（毎朝7時の予定があっても「明日の朝」を入れられるように）
@@ -153,8 +152,8 @@ module MemoriaServer
           scheduled_at: format_time(clamped),
           purpose: purpose,
         }
-        if (clamped - wakeup_at).abs > 1.minute
-          result[:note] = "指定の #{format_time(wakeup_at)} は入れられる範囲（#{autonomous ? "10分" : "1分"}後〜7日後）の外なので、#{format_time(clamped)} にした"
+        if clamped - wakeup_at > 1.minute
+          result[:note] = "指定の #{format_time(wakeup_at)} は近すぎる（#{autonomous ? "10分" : "1分"}後より前）ので、#{format_time(clamped)} にした"
         end
         result
       end

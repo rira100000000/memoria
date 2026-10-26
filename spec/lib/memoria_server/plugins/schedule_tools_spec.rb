@@ -79,11 +79,33 @@ RSpec.describe MemoriaServer::Plugins::ScheduleTools do
       expect(character.scheduled_wakeups.count).to eq(0)
     end
 
-    it "tells when the time was moved into range" do
+    it "schedules days later as given, however far ahead" do
       result = described_class.add(character, time_text: "10日後", purpose: "遠い")
 
-      expect(result[:scheduled_at]).to eq("2026-11-02 00:06")
-      expect(result[:note]).to include("7日後")
+      expect(result[:scheduled_at]).to eq("2026-11-05 00:06")
+      expect(result[:note]).to be_nil
+    end
+
+    it "schedules a time of day a month later as given" do
+      result = described_class.add(character, time_text: "30日後の12時", purpose: "遠い", autonomous: true)
+
+      expect(result[:scheduled_at]).to eq("2026-11-25 12:00")
+      expect(result[:note]).to be_nil
+      expect(character.scheduled_wakeups.last.scheduled_at).to eq(Time.zone.parse("2026-11-25 12:00"))
+    end
+
+    it "schedules a far date without a year as given" do
+      result = described_class.add(character, time_text: "12/25 09:00", purpose: "遠い")
+
+      expect(result[:scheduled_at]).to eq("2026-12-25 09:00")
+      expect(result[:note]).to be_nil
+    end
+
+    it "tells when a time too soon was moved later" do
+      result = described_class.add(character, time_text: "1分後", purpose: "急ぎ", autonomous: true)
+
+      expect(result[:scheduled_at]).to eq("2026-10-26 00:16")
+      expect(result[:note]).to include("10分後")
     end
   end
 
