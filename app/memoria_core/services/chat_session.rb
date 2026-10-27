@@ -384,17 +384,28 @@ class ChatSession
     }
 
     earlier = []
+    # 先に届けて会話に残す（最後の返答は呼び出し元が届けて残す）
+    tell = lambda { |text, work|
+      @record.append_message("model", text, work: work)
+      progress ? progress.call(text) : @chat_logger.log_ai_message(text)
+      earlier << text unless progress
+    }
     next_step = nil
     0.step do |continued|
       reply = reply_once(system_instruction, next_step: next_step, event: continued.zero? ? event : nil, on_progress: progress)
+      # 答えのあとに裏の作業が終わって報告したときは、答え・報告の順に届ける。作業の記録は最初の返答に添える
+      *before, text = [reply[:text], *reply[:followups]]
+      work = reply[:work]
+      before.each do |said|
+        tell.call(said, work)
+        work = nil
+      end
       unless reply[:next_action] == "continue" && continued < MAX_CONTINUATIONS
-        return { final: reply[:text], shown: [*earlier, reply[:text]].join("\n\n"), work: reply[:work] }
+        return { final: text, shown: [*earlier, text].join("\n\n"), work: work }
       end
 
       # 続ける: いまの返答を先に届けて会話に残し、もう一度動かす
-      @record.append_message("model", reply[:text], work: reply[:work])
-      progress ? progress.call(reply[:text]) : @chat_logger.log_ai_message(reply[:text])
-      earlier << reply[:text] unless progress
+      tell.call(text, work)
       next_step = reply[:next_step].presence || "直前の返答で進めると言った作業"
     end
   end
@@ -412,8 +423,16 @@ class ChatSession
 
     # 決まった形で答えなかったときは、本文だけの返答として扱う
     answer = run.structured || {}
+    # 答えのあと裏の作業が終わって出した答え。伝えることがなく reply を空にしたものは届けない。
+    # 次の動きは、最後に出した答えのものに従う
+    followups = run.followups.to_a.filter_map do |f|
+      text = f[:structured] ? f[:structured]["reply"].to_s : f[:text].to_s
+      answer = f[:structured] if f[:structured]
+      filter_response(text).presence
+    end
     {
-      text: filter_response(answer["reply"].presence || run.text),
+      text: filter_response(run.structured&.dig("reply").presence || run.text),
+      followups: followups,
       next_action: answer["next_action"],
       next_step: answer["next_step"],
       work: work,
@@ -485,6 +504,8 @@ class ChatSession
       lines << "#{llm_role_name}として返答してください。"
     end
     lines << "返答の本文は reply に、返答のあとの動きは next_action に書いてください。"
+    lines << "返答のあと、裏で走らせた作業が終わった知らせで起こされたときは、分かった結果を reply で報告する。" \
+      "新しく伝えることがなければ reply を空にする（返答で言ったことを繰り返さない）。"
     lines.join("\n")
   end
 

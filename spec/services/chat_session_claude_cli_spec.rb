@@ -125,6 +125,41 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     ))
   end
 
+  describe "when a background task ends after the answer" do
+    def answer_with_followups(*followups)
+      claude_result('{"reply":"流し始めたよ"}', structured: { "reply" => "流し始めたよ", "next_action" => "delegated" })
+        .tap { |r| r.followups = followups.map { |f| { text: JSON.generate(f), structured: f } } }
+    end
+
+    it "tells the answer first and then the report" do
+      allow(runner).to receive(:run).and_return(answer_with_followups({ "reply" => "できたよ、見てみて", "next_action" => "wait_for_user" }))
+      progress = []
+
+      result = session.send_message("作って", on_progress: ->(text) { progress << text })
+
+      expect(progress).to eq(["流し始めたよ"])
+      expect(result[:response]).to eq("できたよ、見てみて")
+      expect(record.reload.messages.last(2).map { |m| m["content"] }).to eq(["流し始めたよ", "できたよ、見てみて"])
+    end
+
+    it "says nothing more when the report is empty" do
+      allow(runner).to receive(:run).and_return(answer_with_followups({ "reply" => "", "next_action" => "wait_for_user" }))
+
+      result = session.send_message("作って")
+
+      expect(result[:response]).to eq("流し始めたよ")
+      expect(record.reload.messages.last).to eq("role" => "model", "content" => "流し始めたよ")
+    end
+
+    it "asks to leave the report empty when there is nothing new" do
+      allow(runner).to receive(:run).and_return(claude_result("ok"))
+
+      session.send_message("作って")
+
+      expect(runner).to have_received(:run).with(hash_including(prompt: a_string_including("新しく伝えることがなければ reply を空にする")))
+    end
+  end
+
   it "hands progress to the caller and writes it to the full log" do
     allow(runner).to receive(:run) do |**kwargs|
       kwargs[:on_progress].call("調べてみるね")
