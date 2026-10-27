@@ -18,7 +18,7 @@ module ClaudeCli
   # 経過時間の上限 CLAUDE_CLI_TIMEOUT は安全弁として残す（答えが出ていれば、止めても答えは返す）。
   # 利用者の Claude Code / Codex の設定ファイルは読まない。
   class Runner
-    Result = Struct.new(:text, :tool_events, :model, :structured, keyword_init: true)
+    Result = Struct.new(:text, :tool_events, :model, :structured, :followups, keyword_init: true)
 
     # 経過時間の上限（安全弁）
     DEFAULT_TIMEOUT = 7200
@@ -77,7 +77,8 @@ module ClaudeCli
     # @param on_progress [#call, nil] ツールを使う前に書いた文（「調べてみるね」など）を、終わるのを待たずに受け取る
     # @param json_schema [Hash, nil] 指定すると、この形で答えさせる（Result#structured に入る）
     # @param usage_context [Hash, nil] ツールの使用記録（ToolUsageLog）に添える場面の情報（予定の { wakeup_id:, purpose: }）
-    # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]、structured: json_schema の形の答え
+    # @return [Result] text: 最終応答、tool_events: [{ name:, args:, result: }]、structured: json_schema の形の答え、
+    #   followups: 答えのあと、裏の作業が終わった知らせで動いて出した答え（[{ text:, structured: }]）
     def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil, usage_context: nil)
       Dir.mktmpdir("memoria-claude") do |dir|
         events_path = File.join(dir, "tool_events.jsonl")
@@ -98,7 +99,7 @@ module ClaudeCli
         parsed = @backend.parse(stdout, stderr, status, json_schema: json_schema)
 
         Result.new(text: parsed[:text], tool_events: read_events(events_path) + parsed[:builtin_events], model: model,
-                   structured: parsed[:structured])
+                   structured: parsed[:structured], followups: parsed[:followups] || [])
       end
     end
 

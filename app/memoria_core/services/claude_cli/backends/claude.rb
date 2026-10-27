@@ -62,13 +62,16 @@ module ClaudeCli
         ProgressRelay.new(callback)
       end
 
-      # @return [Hash] text: 最終応答、structured: json_schema の形の答え、builtin_events: 組み込みツールの記録
+      # @return [Hash] text: 最終応答、structured: json_schema の形の答え、builtin_events: 組み込みツールの記録、
+      #   followups: 答えのあと、裏の作業が終わった知らせで動いて出した答え（[{ text:, structured: }]）
       def parse(stdout, stderr, status, json_schema: nil)
         messages = parse_stream(stdout)
         result = answer_result(messages)
         text = final_text(result, stdout, stderr, status)
-        structured = result&.dig("structured_output")
-        { text: text, structured: structured.is_a?(Hash) ? structured : nil, builtin_events: builtin_events(messages) }
+        followups = messages.select { |m| m["type"] == "result" && successful?(m) }.drop(1).map do |m|
+          { text: m["result"].to_s, structured: structured_output(m) }
+        end
+        { text: text, structured: structured_output(result), builtin_events: builtin_events(messages), followups: followups }
       end
 
       def background_tracker
@@ -109,7 +112,7 @@ module ClaudeCli
 
       # stream-json のうち、ツールを使う前に書いた文を途中経過として渡す。
       # サブエージェントの文（parent_tool_use_id があるもの）は渡さない。
-      # 答え（最初の result 行）のあとに裏の作業の知らせで動いた分も渡さない（answer_result を参照）
+      # 答え（最初の result 行）のあとに裏の作業の知らせで動いた分も渡さない（その答えは followups で返る）
       class ProgressRelay < ClaudeCli::ProgressRelay
         private
 
@@ -153,11 +156,20 @@ module ClaudeCli
       end
 
       # 答えの result 行。裏で走らせた作業（run_in_background）が答えのあとに終わると、claude -p はその知らせで
-      # もう一度動いて result 行をもう1つ出す。それは答えではない（「裏の作業が終わった」という独り言）ので、
+      # もう一度動いて result 行をもう1つ出す。それは答えのあとの報告（followups）なので、
       # 最初にうまくいった result を答えにする。うまくいったものがなければ、最後の result（エラーの理由）を使う
       def answer_result(messages)
         results = messages.select { |m| m["type"] == "result" }
-        results.find { |m| !m["is_error"] && m["subtype"] == "success" } || results.last
+        results.find { |m| successful?(m) } || results.last
+      end
+
+      def successful?(result)
+        !result["is_error"] && result["subtype"] == "success"
+      end
+
+      def structured_output(result)
+        structured = result&.dig("structured_output")
+        structured.is_a?(Hash) ? structured : nil
       end
 
       def final_text(result, stdout, stderr, status)

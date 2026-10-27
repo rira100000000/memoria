@@ -135,7 +135,7 @@ RSpec.describe ClaudeCli::Runner do
     expect(progress).to be_empty
   end
 
-  it "answers with the first result, not the one claude -p adds when a background task ends after it" do
+  it "answers with the first result, and returns the ones claude -p adds when a background task ends after it as followups" do
     progress = []
     result = described_class.new(command: fake_claude(<<~RUBY))
       puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "StructuredOutput", input: { reply: "できたよ" } }] })
@@ -151,6 +151,7 @@ RSpec.describe ClaudeCli::Runner do
 
     expect(result.structured).to eq("reply" => "できたよ")
     expect(result.text).to eq('{"reply":"できたよ"}')
+    expect(result.followups).to eq([{ text: '{"reply":"報告することはないよ"}', structured: { "reply" => "報告することはないよ" } }])
     expect(progress).to be_empty
   end
 
