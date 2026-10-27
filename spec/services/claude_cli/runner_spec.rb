@@ -135,6 +135,25 @@ RSpec.describe ClaudeCli::Runner do
     expect(progress).to be_empty
   end
 
+  it "answers with the first result, not the one claude -p adds when a background task ends after it" do
+    progress = []
+    result = described_class.new(command: fake_claude(<<~RUBY))
+      puts JSON.generate(type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "StructuredOutput", input: { reply: "できたよ" } }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: '{"reply":"できたよ"}', structured_output: { reply: "できたよ" })
+      puts JSON.generate(type: "system", subtype: "task_notification")
+      puts JSON.generate(type: "assistant", message: { id: "m2", content: [{ type: "text", text: "裏の検索が終わっただけ" }] })
+      puts JSON.generate(type: "assistant", message: { id: "m2", content: [{ type: "tool_use", id: "t2", name: "Bash", input: { command: "cat out" } }] })
+      puts JSON.generate(type: "assistant", message: { id: "m3", content: [{ type: "tool_use", id: "t3", name: "StructuredOutput", input: { reply: "報告することはないよ" } }] })
+      puts JSON.generate(type: "result", subtype: "success", is_error: false, result: '{"reply":"報告することはないよ"}', structured_output: { reply: "報告することはないよ" })
+    RUBY
+      .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet",
+           json_schema: { type: "object" }, on_progress: ->(text) { progress << text })
+
+    expect(result.structured).to eq("reply" => "できたよ")
+    expect(result.text).to eq('{"reply":"できたよ"}')
+    expect(progress).to be_empty
+  end
+
   it "can use all Claude Code tools in a given directory with a settings file" do
     work = File.join(dir, "vault")
     Dir.mkdir(work)
@@ -231,6 +250,38 @@ RSpec.describe ClaudeCli::Runner do
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       yield
       Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    end
+
+    describe "after the answer, while a background task runs" do
+      let(:answer_with_task) do
+        <<~RUBY
+          $stdout.sync = true
+          puts JSON.generate(type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "b1", description: "画像を生成" }])
+          puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "できたよ")
+        RUBY
+      end
+
+      it "waits past the idle timeout and tells it as progress" do
+        progress = []
+        result = described_class.new(command: fake_claude(answer_with_task + <<~RUBY), idle_timeout: 1, timeout: 60, poll_interval: 0.1)
+          sleep 2
+          puts JSON.generate(type: "system", subtype: "background_tasks_changed", tasks: [])
+          puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "裏の作業が終わっただけ")
+        RUBY
+          .run(system_prompt: "S", prompt: "P", character: character, scene: :chat, model: "sonnet",
+               on_progress: ->(text) { progress << text })
+
+        expect(result.text).to eq("できたよ")
+        expect(progress).to eq(["裏の作業が終わるのを待ってる（画像を生成）"])
+      end
+
+      it "returns the answer when the overall limit stops the task" do
+        result = nil
+        time = elapsed { result = run_with(answer_with_task + "sleep 10", idle_timeout: 1, timeout: 1, poll_interval: 0.1) }
+
+        expect(result.text).to eq("できたよ")
+        expect(time).to be < 5
+      end
     end
 
     it "stops when there is no output for the idle timeout" do

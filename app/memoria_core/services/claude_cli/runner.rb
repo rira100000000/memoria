@@ -14,7 +14,8 @@ module ClaudeCli
   # （"vault_dir_name=" なら使わせない）。
   # 作業ディレクトリは CLAUDE_CLI_WORKDIR（未設定なら空の一時ディレクトリ）。
   # 出力が CLAUDE_CLI_IDLE_TIMEOUT 秒とぎれたら止める。キャラクターが long_think ツールで長考を宣言したら、
-  # その期限までは出力がなくても止めない。経過時間の上限 CLAUDE_CLI_TIMEOUT は安全弁として残す。
+  # その期限までは出力がなくても止めない。答えのあと裏の作業（run_in_background）が終わるのを待っている間も止めない。
+  # 経過時間の上限 CLAUDE_CLI_TIMEOUT は安全弁として残す（答えが出ていれば、止めても答えは返す）。
   # 利用者の Claude Code / Codex の設定ファイルは読まない。
   class Runner
     Result = Struct.new(:text, :tool_events, :model, :structured, keyword_init: true)
@@ -89,10 +90,11 @@ module ClaudeCli
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
         relay = on_progress && @backend.progress_relay(on_progress)
+        background = @backend.respond_to?(:background_tracker) ? @backend.background_tracker : nil
         builtin = character ? @builtin_tools_by_character.fetch(character.vault_dir_name, @builtin_tools) : []
         cmd = @backend.command_line(dir: dir, system_prompt: system_prompt, model: model, mcp_config: config,
                                     builtin: builtin, json_schema: json_schema)
-        stdout, stderr, status = execute(cmd, prompt, work_dir, relay, long_think: character && long_think)
+        stdout, stderr, status = execute(cmd, prompt, work_dir, relay, long_think: character && long_think, background: background)
         parsed = @backend.parse(stdout, stderr, status, json_schema: json_schema)
 
         Result.new(text: parsed[:text], tool_events: read_events(events_path) + parsed[:builtin_events], model: model,
@@ -125,7 +127,7 @@ module ClaudeCli
 
     # プロンプトは長くなるので標準入力で渡す。出力がとぎれたとき（長考の宣言中を除く）と、経過時間の上限を
     # 超えたときは、プロセスグループごと止める（コマンドが起動した MCP サーバも残さない）
-    def execute(cmd, prompt, work_dir, relay = nil, long_think: nil)
+    def execute(cmd, prompt, work_dir, relay = nil, long_think: nil, background: nil)
       Open3.popen3(@backend.env, *cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
         # ロケールに関係なく UTF-8 として読み書きする（LANG のない環境では ASCII として扱われ、日本語で壊れる）
         [stdin, stdout, stderr].each { |io| io.set_encoding(Encoding::UTF_8) }
@@ -138,6 +140,7 @@ module ClaudeCli
               activity.touch
               out << line
               relay&.feed(line)
+              background&.feed(line)
             end
             out
           end
@@ -145,7 +148,8 @@ module ClaudeCli
           stdin.write(prompt)
           stdin.close
 
-          watch(wait_thr, activity, relay, long_think)
+          # 答えのあとに経過時間の上限が来たら、残った作業を止めて、そこまでの出力（答え）を読む
+          kill_group(wait_thr) if watch(wait_thr, activity, relay, long_think, background) == :answered_timeout
           [readers[0].value, readers[1].value, wait_thr.value]
         ensure
           # 止めたとき・例外のとき: 残ったプロセスと読み取りのスレッドを片づける
@@ -159,10 +163,12 @@ module ClaudeCli
       raise Error, "#{@backend.command} コマンドが見つかりません"
     end
 
-    # 終わるまで見張る。止めるべきときは Error を上げる（プロセスは execute の ensure で止める）
-    def watch(wait_thr, activity, relay, long_think)
+    # 終わるまで見張る。止めるべきときは Error を上げる（プロセスは execute の ensure で止める）。
+    # 答えが出たあとに止めることになったときは :answered_timeout を返す
+    def watch(wait_thr, activity, relay, long_think, background = nil)
       started = monotonic_now
       announced = nil
+      announced_tasks = nil
       until wait_thr.join(@poll_interval)
         declaration = long_think&.read
         if declaration && declaration != announced
@@ -170,15 +176,27 @@ module ClaudeCli
           relay&.notify("長考中（〜#{declaration.minutes}分：#{declaration.reason}）")
         end
 
+        waiting = background&.waiting_tasks || []
+        if waiting.any? && waiting != announced_tasks
+          announced_tasks = waiting
+          relay&.notify("裏の作業が終わるのを待ってる（#{waiting.join("、")}）")
+        end
+
         if monotonic_now - started > @timeout
+          return :answered_timeout if background&.answered?
+
           raise Error, "#{duration_text(@timeout)}たっても終わらなかったので止めました"
         end
         next if declaration && Time.now < declaration.until_time
+        next if waiting.any?
 
         idle = activity.idle_seconds
         # 長考の期限が過ぎたばかりなら、そこから数え直す（期限の直後に止めない）
         idle = [idle, Time.now - declaration.until_time].min if declaration
-        raise Error, "#{duration_text(@idle_timeout)}出力がなかったので止めました" if idle > @idle_timeout
+        next unless idle > @idle_timeout
+        return :answered_timeout if background&.answered?
+
+        raise Error, "#{duration_text(@idle_timeout)}出力がなかったので止めました"
       end
     end
 

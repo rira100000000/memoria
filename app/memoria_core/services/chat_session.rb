@@ -102,7 +102,7 @@ class ChatSession
 
       system_instruction = build_system_instruction(build_context(event))
       reply = send_via_claude(system_instruction, event: event)
-      @record.append_message("model", reply[:final])
+      @record.append_message("model", reply[:final], work: reply[:work])
       @chat_logger.log_ai_message(reply[:final])
       { response: reply[:shown] }
     end
@@ -131,7 +131,7 @@ class ChatSession
         Rails.logger.warn("[ChatSession] claude -p failed: #{e.message}") if defined?(Rails)
         return { response: ClaudeCli.failure_notice(e, what: "返答"), usage: nil }
       end
-      @record.append_message("model", reply[:final])
+      @record.append_message("model", reply[:final], work: reply[:work])
       @chat_logger.log_ai_message(reply[:final])
       return { response: reply[:shown], usage: nil }
     end
@@ -373,7 +373,8 @@ class ChatSession
 
   # アプリ層から差し込まれたツール（extra_tools）は MCP サーバの別プロセスでは使えないので、そのときは Gemini で動かす
 
-  # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）
+  # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）、
+  #   work: 最後の返答を書くまでにした作業の記録
   def send_via_claude(system_instruction, on_progress: nil, event: nil)
     # 途中経過も会話ログに残す
     progress = on_progress && lambda { |text|
@@ -387,11 +388,11 @@ class ChatSession
     0.step do |continued|
       reply = reply_once(system_instruction, next_step: next_step, event: continued.zero? ? event : nil, on_progress: progress)
       unless reply[:next_action] == "continue" && continued < MAX_CONTINUATIONS
-        return { final: reply[:text], shown: [*earlier, reply[:text]].join("\n\n") }
+        return { final: reply[:text], shown: [*earlier, reply[:text]].join("\n\n"), work: reply[:work] }
       end
 
       # 続ける: いまの返答を先に届けて会話に残し、もう一度動かす
-      @record.append_message("model", reply[:text])
+      @record.append_message("model", reply[:text], work: reply[:work])
       progress ? progress.call(reply[:text]) : @chat_logger.log_ai_message(reply[:text])
       earlier << reply[:text] unless progress
       next_step = reply[:next_step].presence || "直前の返答で進めると言った作業"
@@ -401,9 +402,13 @@ class ChatSession
   def reply_once(system_instruction, next_step:, on_progress:, event: nil)
     deep = @record.deep_mode
     run = run_claude(system_instruction, deep: deep, next_step: next_step, event: event, on_progress: on_progress)
+    work = work_log(run)
 
-    # 会話の途中で強いモデルに切り替えたら、この返答から作り直す
-    run = run_claude(system_instruction, deep: true, next_step: next_step, event: event, on_progress: on_progress) if !deep && @record.reload.deep_mode
+    # 会話の途中で強いモデルに切り替えたら、この返答から作り直す（作り直す前にした作業も済んでいるので残す）
+    if !deep && @record.reload.deep_mode
+      run = run_claude(system_instruction, deep: true, next_step: next_step, event: event, on_progress: on_progress)
+      work += work_log(run)
+    end
 
     # 決まった形で答えなかったときは、本文だけの返答として扱う
     answer = run.structured || {}
@@ -411,7 +416,12 @@ class ChatSession
       text: filter_response(answer["reply"].presence || run.text),
       next_action: answer["next_action"],
       next_step: answer["next_step"],
+      work: work,
     }
+  end
+
+  def work_log(run)
+    run.tool_events.flat_map { |event| Array(event[:result][:log]).map(&:to_s) }
   end
 
   def run_claude(system_instruction, deep:, next_step: nil, event: nil, on_progress: nil)
@@ -441,7 +451,19 @@ class ChatSession
     lines = []
     if history.any?
       lines << "これまでの会話:"
-      history.each { |m| lines << "#{m[:role] == "user" ? "User" : llm_role_name}: #{m[:content]}" }
+      history.each do |m|
+        if m[:role] == "user"
+          lines << "User: #{m[:content]}"
+        else
+          # 返答の前にした作業も書き起こす（ファイルの場所やコマンドを、次の返答で調べ直さずに済むように）
+          Array(m[:work]).each { |entry| lines << "（#{llm_role_name}の作業）#{entry}" }
+          lines << "#{llm_role_name}: #{m[:content]}"
+        end
+      end
+      if history.any? { |m| m[:work].present? }
+        lines << "（#{llm_role_name}の作業）の行は、あなたがその返答の前に実際にしたこと。" \
+          "そこに出てくるファイルの場所やコマンドはそのまま使い、同じ下調べを繰り返さない。"
+      end
       lines << ""
     end
     if event

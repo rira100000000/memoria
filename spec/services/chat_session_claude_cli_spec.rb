@@ -109,6 +109,22 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(session.chat_logger).to have_received(:log_ai_message).with("ピコ: ぴよ")
   end
 
+  it "keeps the work done before a reply and passes it to the next answer" do
+    bash = { name: "Bash", args: {}, result: { log: ["[Bash] python3 tools/gen.py ref.png out.png"] } }
+    allow(runner).to receive(:run).and_return(claude_result("できたよ", [bash]), claude_result("もう1枚ね"))
+
+    session.send_message("1枚作って")
+    session.send_message("もう1枚")
+
+    expect(record.reload.messages[1]).to eq("role" => "model", "content" => "できたよ",
+                                            "work" => ["[Bash] python3 tools/gen.py ref.png out.png"])
+    expect(record.messages.last).to eq("role" => "model", "content" => "もう1枚ね")
+    expect(runner).to have_received(:run).with(hash_including(
+      prompt: a_string_including("User: 1枚作って\n（アオイの作業）[Bash] python3 tools/gen.py ref.png out.png\nアオイ: できたよ",
+                                 "同じ下調べを繰り返さない")
+    ))
+  end
+
   it "hands progress to the caller and writes it to the full log" do
     allow(runner).to receive(:run) do |**kwargs|
       kwargs[:on_progress].call("調べてみるね")
