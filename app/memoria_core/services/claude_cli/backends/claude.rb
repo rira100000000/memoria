@@ -65,20 +65,63 @@ module ClaudeCli
       # @return [Hash] text: 最終応答、structured: json_schema の形の答え、builtin_events: 組み込みツールの記録
       def parse(stdout, stderr, status, json_schema: nil)
         messages = parse_stream(stdout)
-        text = final_text(messages, stdout, stderr, status)
-        structured = messages.reverse.find { |m| m["type"] == "result" }&.dig("structured_output")
+        result = answer_result(messages)
+        text = final_text(result, stdout, stderr, status)
+        structured = result&.dig("structured_output")
         { text: text, structured: structured.is_a?(Hash) ? structured : nil, builtin_events: builtin_events(messages) }
       end
 
+      def background_tracker
+        BackgroundTracker.new
+      end
+
+      # 答え（最初の result 行）が出たか、そのとき裏で走っている作業（run_in_background）が残っているかを見る。
+      # 残っていると、claude -p はそれが終わるまで終わらない（answer_result を参照）
+      class BackgroundTracker
+        def initialize
+          @mutex = Mutex.new
+          @answered = false
+          @tasks = []
+        end
+
+        def feed(line)
+          return unless line.strip.start_with?("{")
+
+          m = JSON.parse(line)
+          @mutex.synchronize do
+            @answered = true if m["type"] == "result"
+            # 走っている作業の一覧が、変わるたびに丸ごと届く
+            @tasks = Array(m["tasks"]).filter_map { |t| t["description"] if t.is_a?(Hash) } if m["type"] == "system" && m["subtype"] == "background_tasks_changed"
+          end
+        rescue JSON::ParserError
+          nil
+        end
+
+        def answered?
+          @mutex.synchronize { @answered }
+        end
+
+        # 答えのあと、終わるのを待っている作業の説明（待っていなければ空）
+        def waiting_tasks
+          @mutex.synchronize { @answered ? @tasks.dup : [] }
+        end
+      end
+
       # stream-json のうち、ツールを使う前に書いた文を途中経過として渡す。
-      # サブエージェントの文（parent_tool_use_id があるもの）は渡さない
+      # サブエージェントの文（parent_tool_use_id があるもの）は渡さない。
+      # 答え（最初の result 行）のあとに裏の作業の知らせで動いた分も渡さない（answer_result を参照）
       class ProgressRelay < ClaudeCli::ProgressRelay
         private
 
         def feed_line(line)
+          return if @answered
           return unless line.strip.start_with?("{")
 
           m = JSON.parse(line)
+          if m["type"] == "result"
+            @answered = true
+            return
+          end
           return unless m["type"] == "assistant" && m["message"].is_a?(Hash) && m["parent_tool_use_id"].nil?
 
           Array(m["message"]["content"]).each do |c|
@@ -109,8 +152,15 @@ module ClaudeCli
         end
       end
 
-      def final_text(messages, stdout, stderr, status)
-        result = messages.reverse.find { |m| m["type"] == "result" }
+      # 答えの result 行。裏で走らせた作業（run_in_background）が答えのあとに終わると、claude -p はその知らせで
+      # もう一度動いて result 行をもう1つ出す。それは答えではない（「裏の作業が終わった」という独り言）ので、
+      # 最初にうまくいった result を答えにする。うまくいったものがなければ、最後の result（エラーの理由）を使う
+      def answer_result(messages)
+        results = messages.select { |m| m["type"] == "result" }
+        results.find { |m| !m["is_error"] && m["subtype"] == "success" } || results.last
+      end
+
+      def final_text(result, stdout, stderr, status)
         unless result
           detail = stderr.to_s.strip.presence || stdout.to_s.strip.presence || "出力なし"
           raise Error, "終了コード #{status&.exitstatus}: #{detail.truncate(300)}"

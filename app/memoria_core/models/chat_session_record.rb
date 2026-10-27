@@ -18,9 +18,13 @@ class ChatSessionRecord < ApplicationRecord
     update!(status: "closed")
   end
 
-  def append_message(role, content)
+  # @param work [Array<String>, nil] この返答を書くまでにした作業の記録（"[Bash] ..." など）。
+  #   claude -p は1回ごとに独立して動くので、次の返答のプロンプトに入れて、同じ下調べを繰り返さないようにする
+  def append_message(role, content, work: nil)
     self.messages ||= []
-    self.messages << { "role" => role, "content" => content }
+    message = { "role" => role, "content" => content }
+    message["work"] = work if work.present?
+    self.messages << message
     self.last_message_at = Time.current
     save!
   end
