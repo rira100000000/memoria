@@ -15,7 +15,7 @@
 
 埋め込みなどは Gemini のままなので、`GEMINI_API_KEY` は引き続き必要です。
 
-`CLAUDE_CLI_BACKEND=codex` にすると、`claude -p` の代わりに `codex exec`（Codex CLI）で同じ処理を動かせます（[codex exec で動かす](#codex-exec-で動かす)）。
+`LLM_CLI_BACKEND=codex` にすると、`claude -p` の代わりに `codex exec`（Codex CLI）で同じ処理を動かせます（[codex exec で動かす](#codex-exec-で動かす)）。
 
 ## 設定
 
@@ -95,11 +95,11 @@ claude -p が失敗したとき（異常終了、タイムアウト、利用枠�
 
 ## codex exec で動かす
 
-`CLAUDE_CLI_BACKEND=codex` にすると、会話・思考ループ・軽い作業のすべてを `codex exec` で動かします。未設定（または `claude`）なら従来どおり `claude -p` です。呼び出し側（会話・思考ループ・`LlmClient#generate`）は同じままで、`ClaudeCli::Runner` の後ろのバックエンド（`ClaudeCli::Backends::Claude` / `ClaudeCli::Backends::Codex`）だけが入れ替わります。
+`LLM_CLI_BACKEND=codex` にすると、会話・思考ループ・軽い作業のすべてを `codex exec` で動かします。未設定（または `claude`）なら従来どおり `claude -p` です。呼び出し側（会話・思考ループ・`LlmClient#generate`）は同じままで、`ClaudeCli::Runner` の後ろのバックエンド（`ClaudeCli::Backends::Claude` / `ClaudeCli::Backends::Codex`）だけが入れ替わります。
 
 ```bash
 MEMORIA_AGENT_BACKEND=claude_cli
-CLAUDE_CLI_BACKEND=codex
+LLM_CLI_BACKEND=codex
 CODEX_CLI_HOME=/path/to/codex-home-for-memoria   # memoria 専用の CODEX_HOME（下を参照）
 # CODEX_CLI_COMMAND=codex                        # codex コマンドのパス（PATH にないとき。nvm などで入れたものはそのパス）
 # CODEX_CLI_MODEL=gpt-6.1-sol:medium              # 会話と思考ループ（"モデル名:推論の強さ" でも書ける）

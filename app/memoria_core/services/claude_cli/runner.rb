@@ -2,7 +2,7 @@ require "open3"
 require "tmpdir"
 
 module ClaudeCli
-  # claude -p（または codex exec）を1回実行する。どちらで動かすかは CLAUDE_CLI_BACKEND で決める
+  # claude -p（または codex exec）を1回実行する。どちらで動かすかは LLM_CLI_BACKEND で決める
   # （claude / codex。未設定なら claude）。コマンドの組み立てと出力の読み方は Backends::Claude / Backends::Codex にある。
   #
   # キャラクターを指定したときは、そのツールを MCP サーバ（bin/memoria_mcp）として渡す。

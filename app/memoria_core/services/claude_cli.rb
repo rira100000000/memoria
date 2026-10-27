@@ -1,7 +1,7 @@
 # claude -p（Claude Code のヘッドレス実行）で、キャラクターの会話・思考と軽い作業を動かすバックエンド。
 #
 # 既定は Gemini。MEMORIA_AGENT_BACKEND=claude_cli のときだけ使う。
-# CLAUDE_CLI_BACKEND=codex にすると、claude -p の代わりに codex exec（Codex CLI）で動かす（未設定なら claude）。
+# LLM_CLI_BACKEND=codex にすると、claude -p の代わりに codex exec（Codex CLI）で動かす（未設定なら claude）。
 # claude はこのマシンにインストール済みのものをそのまま呼ぶ。認証（サブスクリプションか
 # API キーか）は利用者の claude の設定に任せ、memoria は認証情報に触れない。
 # サブスクリプションで使う場合の扱いは Anthropic の規約に従うこと（docs/CLAUDE_CLI_BACKEND.md）。
@@ -32,7 +32,7 @@ module ClaudeCli
 
     # 実行に使うコマンド: "claude"（claude -p）か "codex"（codex exec）
     def backend
-      name = ENV["CLAUDE_CLI_BACKEND"].to_s.strip.downcase
+      name = ENV["LLM_CLI_BACKEND"].to_s.strip.downcase
       BACKENDS.include?(name) ? name : "claude"
     end
 

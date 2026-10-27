@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe ClaudeCli, "choosing claude or codex" do
   around do |example|
-    keys = %w[CLAUDE_CLI_BACKEND CODEX_CLI_MODEL CODEX_CLI_DEEP_MODEL CODEX_CLI_LIGHT_MODEL MEMORIA_AGENT_BACKEND]
+    keys = %w[LLM_CLI_BACKEND CLAUDE_CLI_BACKEND CODEX_CLI_MODEL CODEX_CLI_DEEP_MODEL CODEX_CLI_LIGHT_MODEL MEMORIA_AGENT_BACKEND]
     original = ENV.to_h.slice(*keys)
     example.run
   ensure
@@ -10,7 +10,7 @@ RSpec.describe ClaudeCli, "choosing claude or codex" do
   end
 
   it "uses claude when nothing is set" do
-    ENV.delete("CLAUDE_CLI_BACKEND")
+    ENV.delete("LLM_CLI_BACKEND")
 
     expect(described_class.backend).to eq("claude")
     expect(described_class.model).to eq("sonnet")
@@ -20,14 +20,36 @@ RSpec.describe ClaudeCli, "choosing claude or codex" do
     expect(described_class.failure_notice(ClaudeCli::Error.new("x"), what: "返答")).to include("claude -p が使えなかった")
   end
 
+  it "uses claude when set to claude explicitly" do
+    ENV["LLM_CLI_BACKEND"] = "claude"
+    ENV["MEMORIA_AGENT_BACKEND"] = "claude_cli"
+
+    expect(described_class.backend).to eq("claude")
+    expect(described_class.codex?).to be(false)
+    expect(ClaudeCli::Runner.new.backend).to be_a(ClaudeCli::Backends::Claude)
+  end
+
+  it "accepts the name regardless of case and surrounding spaces" do
+    ENV["LLM_CLI_BACKEND"] = " Codex "
+
+    expect(described_class.backend).to eq("codex")
+  end
+
+  it "does not read the former variable name CLAUDE_CLI_BACKEND" do
+    ENV.delete("LLM_CLI_BACKEND")
+    ENV["CLAUDE_CLI_BACKEND"] = "codex"
+
+    expect(described_class.backend).to eq("claude")
+  end
+
   it "falls back to claude for an unknown name" do
-    ENV["CLAUDE_CLI_BACKEND"] = "gemini"
+    ENV["LLM_CLI_BACKEND"] = "gemini"
 
     expect(described_class.backend).to eq("claude")
   end
 
   it "uses codex with its own models when set" do
-    ENV["CLAUDE_CLI_BACKEND"] = "codex"
+    ENV["LLM_CLI_BACKEND"] = "codex"
     ENV["CODEX_CLI_MODEL"] = "gpt-x"
     ENV.delete("CODEX_CLI_DEEP_MODEL")
     ENV.delete("CODEX_CLI_LIGHT_MODEL")
