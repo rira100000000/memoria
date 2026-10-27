@@ -104,7 +104,7 @@ bundle exec rspec         # テスト
 - 自律思考ループ（会話がない間の記憶整理・考えごと）と予定（単発・繰り返し。実行できなかった予定は連絡手段に通知）
 - Discord bot、音声書き起こし・読み上げエンドポイント
 - プラグイン（キャラクターにツールと指示を足す拡張。[docs/PLUGIN_README.md](docs/PLUGIN_README.md)）
-- claude -p バックエンド（会話・思考ループと軽い作業を Claude Code のヘッドレス実行で動かす選択肢。[docs/CLAUDE_CLI_BACKEND.md](docs/CLAUDE_CLI_BACKEND.md)）
+- claude -p バックエンド（会話・思考ループと軽い作業を Claude Code のヘッドレス実行で動かす選択肢。codex exec にも切り替えられる。[docs/CLAUDE_CLI_BACKEND.md](docs/CLAUDE_CLI_BACKEND.md)）
 
 ## 技術スタック
 

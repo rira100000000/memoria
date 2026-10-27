@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000003"}
+{"type":"turn.started"}
+{"type":"error","message":"{\"type\":\"error\",\"error\":{\"message\":\"Invalid schema for response_format 'codex_output_schema'.\",\"type\":\"invalid_request_error\"},\"status\":400}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"error\":{\"message\":\"Invalid schema for response_format 'codex_output_schema'.\",\"type\":\"invalid_request_error\"},\"status\":400}"}}

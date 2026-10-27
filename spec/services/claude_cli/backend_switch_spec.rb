@@ -1,0 +1,48 @@
+require "rails_helper"
+
+RSpec.describe ClaudeCli, "choosing claude or codex" do
+  around do |example|
+    keys = %w[CLAUDE_CLI_BACKEND CODEX_CLI_MODEL CODEX_CLI_DEEP_MODEL CODEX_CLI_LIGHT_MODEL MEMORIA_AGENT_BACKEND]
+    original = ENV.to_h.slice(*keys)
+    example.run
+  ensure
+    keys.each { |k| ENV[k] = original[k] }
+  end
+
+  it "uses claude when nothing is set" do
+    ENV.delete("CLAUDE_CLI_BACKEND")
+
+    expect(described_class.backend).to eq("claude")
+    expect(described_class.model).to eq("sonnet")
+    expect(described_class.model(deep: true)).to eq("opus")
+    expect(described_class.light_model).to eq("haiku")
+    expect(ClaudeCli::Runner.new.backend).to be_a(ClaudeCli::Backends::Claude)
+    expect(described_class.failure_notice(ClaudeCli::Error.new("x"), what: "返答")).to include("claude -p が使えなかった")
+  end
+
+  it "falls back to claude for an unknown name" do
+    ENV["CLAUDE_CLI_BACKEND"] = "gemini"
+
+    expect(described_class.backend).to eq("claude")
+  end
+
+  it "uses codex with its own models when set" do
+    ENV["CLAUDE_CLI_BACKEND"] = "codex"
+    ENV["CODEX_CLI_MODEL"] = "gpt-x"
+    ENV.delete("CODEX_CLI_DEEP_MODEL")
+    ENV.delete("CODEX_CLI_LIGHT_MODEL")
+    ENV["MEMORIA_AGENT_BACKEND"] = "claude_cli"
+
+    expect(described_class.backend).to eq("codex")
+    expect(described_class.model).to eq("gpt-x")
+    expect(described_class.model(deep: true)).to eq(ClaudeCli::CODEX_DEFAULT_DEEP_MODEL)
+    expect(described_class.light_model).to eq(ClaudeCli::CODEX_DEFAULT_LIGHT_MODEL)
+    expect(described_class.deep_model_available?).to be(true)
+    expect(ClaudeCli::Runner.new.backend).to be_a(ClaudeCli::Backends::Codex)
+    expect(described_class.failure_notice(ClaudeCli::Error.new("x"), what: "返答")).to include("codex exec が使えなかった")
+  end
+
+  it "rejects an unknown backend given to the runner" do
+    expect { ClaudeCli::Runner.new(backend: "gemini") }.to raise_error(ArgumentError)
+  end
+end

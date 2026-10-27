@@ -15,6 +15,8 @@
 
 埋め込みなどは Gemini のままなので、`GEMINI_API_KEY` は引き続き必要です。
 
+`CLAUDE_CLI_BACKEND=codex` にすると、`claude -p` の代わりに `codex exec`（Codex CLI）で同じ処理を動かせます（[codex exec で動かす](#codex-exec-で動かす)）。
+
 ## 設定
 
 ```bash
@@ -86,10 +88,58 @@ bin/tool_usage --json                              # 集計を JSON で
 
 claude -p が失敗したとき（異常終了、タイムアウト、利用枠切れなど）、Gemini で代わりに動くことはしません。黙って止まらないように知らせます。
 
-- 会話: 「⚠️ memoria: claude -p が使えなかったので、返答できませんでした（理由）」と返します（会話の履歴には残しません）
+- 会話: 「⚠️ memoria: claude -p が使えなかったので、返答できませんでした（理由）」と返します（会話の履歴には残しません。codex のときは「codex exec が使えなかったので」）
 - 予定の実行: 予定の失敗として連絡手段（Discord など）に知らせます
 - 予定によらない思考ループ: 同じ形の文を連絡手段に送ります。続けて失敗しても1時間に1回まで
 - 軽い作業: 呼び出し元の処理が失敗します（振り返りなどは、Gemini の API が失敗したときと同じ扱い）
+
+## codex exec で動かす
+
+`CLAUDE_CLI_BACKEND=codex` にすると、会話・思考ループ・軽い作業のすべてを `codex exec` で動かします。未設定（または `claude`）なら従来どおり `claude -p` です。呼び出し側（会話・思考ループ・`LlmClient#generate`）は同じままで、`ClaudeCli::Runner` の後ろのバックエンド（`ClaudeCli::Backends::Claude` / `ClaudeCli::Backends::Codex`）だけが入れ替わります。
+
+```bash
+MEMORIA_AGENT_BACKEND=claude_cli
+CLAUDE_CLI_BACKEND=codex
+CODEX_CLI_HOME=/path/to/codex-home-for-memoria   # memoria 専用の CODEX_HOME（下を参照）
+# CODEX_CLI_COMMAND=codex                        # codex コマンドのパス（PATH にないとき。nvm などで入れたものはそのパス）
+# CODEX_CLI_MODEL=gpt-6.1-sol:medium              # 会話と思考ループ（"モデル名:推論の強さ" でも書ける）
+# CODEX_CLI_DEEP_MODEL=gpt-6.1-sol:high           # 込み入った会話で切り替えるモデル
+# CODEX_CLI_LIGHT_MODEL=gpt-6-luna:low            # 振り返りなどの軽い作業
+# CODEX_CLI_SANDBOX=workspace-write               # CLAUDE_CLI_BUILTIN_TOOLS=default のときのサンドボックス
+```
+
+`CLAUDE_CLI_IDLE_TIMEOUT`・`CLAUDE_CLI_TIMEOUT`・`CLAUDE_CLI_WORKDIR`・`CLAUDE_CLI_BUILTIN_TOOLS`・`CLAUDE_CLI_BUILTIN_TOOLS_BY_CHARACTER` は codex でもそのまま使います。
+
+`CODEX_CLI_COMMAND` をパスで指定したときは、そのディレクトリを `PATH` の前に足して起動します（npm で入れた codex は node のスクリプトなので、nvm などでは同じディレクトリの node が要ります）。
+
+### 専用の CODEX_HOME
+
+codex は `--ignore-user-config` を付けても、`$CODEX_HOME/AGENTS.md`（利用者の共通の指示）とスキルの一覧をプロンプトに入れます。キャラクターに利用者の指示が混ざらないように、memoria 専用の CODEX_HOME を用意して `CODEX_CLI_HOME` に指定してください。
+
+```bash
+CODEX_HOME=/path/to/codex-home-for-memoria codex login
+```
+
+ふだん使っている `~/.codex/auth.json` を複製して使うのは避けてください。トークンの更新が片方でしか反映されず、もう片方のログインが切れることがあります。
+
+### claude -p との違い
+
+codex-cli 0.164 で確かめた対応です。
+
+| claude -p | codex exec |
+| --- | --- |
+| `--system-prompt` | ファイルに書いて `-c model_instructions_file=...` で渡す（Codex の既定の指示と置き換わる）。MCP のツールの呼び方を短く書き足す |
+| `--output-format stream-json` | `--json`（JSON Lines。`item.started` / `item.completed` の `agent_message`・`mcp_tool_call`・`web_search`・`command_execution`・`file_change`、最後に `turn.completed` か `turn.failed`） |
+| `--mcp-config`（ファイル） | `-c mcp_servers.memoria.*`。承認なしで呼べるように `default_tools_approval_mode="approve"`。MCP サーバには環境変数が引き継がれないので、名前を `env_vars` に並べる（値はコマンドラインに出さない） |
+| `--json-schema` | `--output-schema`（ファイル）。OpenAI の strict な形が必要なので、すべての項目を `required` にし、省略できる項目は `null` を許す形に直す。返ってきた `null` の項目は除く |
+| `--max-turns` | 相当するものがない。止めるのは出力のとぎれ（`CLAUDE_CLI_IDLE_TIMEOUT`）と経過時間の上限（`CLAUDE_CLI_TIMEOUT`）だけ |
+| `--tools WebSearch,WebFetch` | `-c web_search="live"`。コマンドの実行などは `--disable shell_tool` などで止め、サンドボックスは `read-only` |
+| `--tools default` と `--settings` | 機能は止めず、サンドボックスを `CODEX_CLI_SANDBOX`（既定: `workspace-write`）にする。`approval_policy="never"` |
+| `--setting-sources ""` | `--ignore-user-config`、`project_doc_max_bytes=0`、`skills.include_instructions=false`。`$CODEX_HOME/AGENTS.md` は専用の CODEX_HOME で避ける |
+| `--no-session-persistence` | `--ephemeral` |
+| `--model sonnet` | `--model` と `-c model_reasoning_effort=...`（`CODEX_CLI_MODEL` などの `:` の後ろ） |
+
+組み込みツールの記録の名前は、Web検索が `web_search`（Web のページを開いたものは `web_fetch`）、コマンドの実行が `shell`、ファイルの変更が `file_change` です。
 
 ## 規約について
 
