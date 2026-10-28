@@ -129,7 +129,8 @@ module ClaudeCli
     # プロンプトは長くなるので標準入力で渡す。出力がとぎれたとき（長考の宣言中を除く）と、経過時間の上限を
     # 超えたときは、プロセスグループごと止める（コマンドが起動した MCP サーバも残さない）
     def execute(cmd, prompt, work_dir, relay = nil, long_think: nil, background: nil)
-      Open3.popen3(@backend.env, *cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
+      # Brakeman は第1引数がハッシュのリテラルでないとコマンド文字列とみなすので、環境変数はリテラルに展開して渡す
+      Open3.popen3({ **@backend.env }, *cmd, chdir: work_dir, pgroup: true) do |stdin, stdout, stderr, wait_thr|
         # ロケールに関係なく UTF-8 として読み書きする（LANG のない環境では ASCII として扱われ、日本語で壊れる）
         [stdin, stdout, stderr].each { |io| io.set_encoding(Encoding::UTF_8) }
         activity = Activity.new
