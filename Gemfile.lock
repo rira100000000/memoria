@@ -101,10 +101,10 @@ GEM
     debug (1.11.1)
       irb (~> 1.10)
       reline (>= 0.3.8)
-    debug-mcp (0.3.0)
+    debug-mcp (0.4.0)
       base64 (~> 0.2)
       debug (~> 1.0)
-      mcp (~> 0.7)
+      mcp (~> 1.8)
       webrick (~> 1.9)
     diff-lcs (1.6.2)
     discordrb (3.7.2)
@@ -195,7 +195,7 @@ GEM
       net-pop
       net-smtp
     marcel (1.1.0)
-    mcp (0.25.0)
+    mcp (1.8.2)
       json_schemer (>= 2.4)
     mime-types (3.7.0)
       logger
@@ -223,7 +223,8 @@ GEM
       net-ssh (>= 5.0.0, < 8.0.0)
     net-smtp (0.5.1)
       net-protocol
-    net-ssh (7.3.2)
+    net-ssh (7.3.8)
+      logger
     netrc (0.11.0)
     nio4r (2.7.5)
     nokogiri (1.19.4-aarch64-linux-gnu)
@@ -499,7 +500,7 @@ CHECKSUMS
   csv (3.3.5) sha256=6e5134ac3383ef728b7f02725d9872934f523cb40b961479f69cf3afa6c8e73f
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   debug (1.11.1) sha256=2e0b0ac6119f2207a6f8ac7d4a73ca8eb4e440f64da0a3136c30343146e952b6
-  debug-mcp (0.3.0) sha256=d6ae4cf245de3fc543ea38c962ca78a13cae32bb2df168bcead79a6178caee58
+  debug-mcp (0.4.0) sha256=976116fa22b8ce5f1b5929deb9394c4dd8fc546b9dab8b3f971ef4fae71ccea7
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   discordrb (3.7.2) sha256=a9a32f485e639a1e63313479b40a7b49100b1b50eb74ed17b8bd413e01a3b46f
   discordrb-webhooks (3.7.2) sha256=154d8c3a31aaeb6d580456b9624e0486c28812dcc19b51d91c43a6c5600112ea
@@ -541,7 +542,7 @@ CHECKSUMS
   loofah (2.25.2) sha256=2007f746959ac65552456e04b433e83deb22759ab38c838b4445c70e43425918
   mail (2.9.1) sha256=06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8
   marcel (1.1.0) sha256=fdcfcfa33cc52e93c4308d40e4090a5d4ea279e160a7f6af988260fa970e0bee
-  mcp (0.25.0) sha256=8acf3a5f3b60b6fd6e5d9b8ac5eb85ac504766976cbadaca182d2ffe7d795d98
+  mcp (1.8.2) sha256=59843aaceb060260bfcf38692d1c99ec497eefc039a6174237f53a59ee71d323
   mime-types (3.7.0) sha256=dcebf61c246f08e15a4de34e386ebe8233791e868564a470c3fe77c00eed5e56
   mime-types-data (3.2026.0331) sha256=e9942b1fac72532e2b201b0c32c52e7650ef5ef8ca043a5054674597795c97a5
   mini_mime (1.1.5) sha256=8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef
@@ -556,7 +557,7 @@ CHECKSUMS
   net-scp (4.1.0) sha256=a99b0b92a1e5d360b0de4ffbf2dc0c91531502d3d4f56c28b0139a7c093d1a5d
   net-sftp (4.0.0) sha256=65bb91c859c2f93b09826757af11b69af931a3a9155050f50d1b06d384526364
   net-smtp (0.5.1) sha256=ed96a0af63c524fceb4b29b0d352195c30d82dd916a42f03c62a3a70e5b70736
-  net-ssh (7.3.2) sha256=65029e213c380e20e5fd92ece663934ab0a0fe888e0cd7cc6a5b664074362dd4
+  net-ssh (7.3.8) sha256=16bb1fccc4d9a580decdeea8ddb98e8544df29b7e6ac8cb94d4b379cfe4bee9f
   netrc (0.11.0) sha256=de1ce33da8c99ab1d97871726cba75151113f117146becbe45aa85cb3dabee3f
   nio4r (2.7.5) sha256=6c90168e48fb5f8e768419c93abb94ba2b892a1d0602cb06eef16d8b7df1dca1
   nokogiri (1.19.4-aarch64-linux-gnu) sha256=1269fb644a6de405057a53dd5c762b1209b43ca7424f839454d3dbc677c31a8f
