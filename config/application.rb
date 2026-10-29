@@ -1,5 +1,6 @@
 require_relative "boot"
 require_relative "log_secret_filter"
+require_relative "../lib/persistent_claude/pool"
 
 require "rails"
 # Pick the frameworks you want:
@@ -27,7 +28,8 @@ module Memoria
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
+    # persistent_claude は、動いている claude のプロセスを持つので、再読み込みの対象にしない（lib/persistent_claude/session.rb）
+    config.autoload_lib(ignore: %w[assets tasks persistent_claude])
 
     # 同梱の見本アダプタ（memoria_core）の部品は app/memoria_core/ にまとめる。
     # 下の各ディレクトリを読み込みの起点にして、クラス名は app/ の直下にあるときと同じにする

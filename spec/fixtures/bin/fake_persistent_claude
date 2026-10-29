@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# claude -p --input-format stream-json の代わりに動く、テスト用の偽物。
+# 標準入力の user メッセージを1行ずつ読み、assistant 行と result 行を返す。
+# 本文のキーワードで振る舞いを変える: CRASH（何も返さず終了）、SLOW（4秒待つ）、
+# UNSOLICITED（答えのあと、頼まれていない出力をする）、BACKGROUND（裏の作業が残る）
+require "json"
+$stdin.set_encoding("UTF-8")
+$stdout.set_encoding("UTF-8")
+$stdout.sync = true
+log_path = ENV["FAKE_CLAUDE_LOG"]
+n = 0
+background = false
+
+def say(hash)
+  puts JSON.generate(hash)
+end
+
+$stdin.each_line do |line|
+  message = JSON.parse(line)
+  content = message.dig("message", "content").to_s
+  n += 1
+  File.open(log_path, "a") { |f| f.puts(JSON.generate(n: n, pid: Process.pid, content: content, args: ARGV)) } if log_path
+  if content.include?("CRASH")
+    warn "boom"
+    exit 3
+  end
+  say(type: "system", subtype: "init", session_id: "fake") if n == 1
+  sleep 4 if content.include?("SLOW")
+  if content.include?("BACKGROUND")
+    background = true
+    say(type: "system", subtype: "background_tasks_changed", tasks: [ { description: "ビルド" } ])
+  end
+  say(type: "assistant", message: { content: [ { type: "tool_use", id: "t#{n}", name: "StructuredOutput", input: {} } ] })
+  say(type: "result", subtype: "success", is_error: false, result: "",
+      structured_output: { reply: "echo#{n}:#{content[0, 30]}", next_action: "wait_for_user", pid: Process.pid, n: n },
+      usage: { input_tokens: 3, cache_read_input_tokens: n * 100, cache_creation_input_tokens: 10 })
+  Thread.new { sleep 0.3; say(type: "assistant", message: { content: [ { type: "text", text: "頼まれていない" } ] }) } if content.include?("UNSOLICITED")
+end
+
+if background
+  sleep 0.2
+  say(type: "assistant", message: { content: [ { type: "tool_use", id: "tb", name: "StructuredOutput", input: {} } ] })
+  say(type: "result", subtype: "success", is_error: false, result: "",
+      structured_output: { reply: "後報", next_action: "wait_for_user" })
+end
