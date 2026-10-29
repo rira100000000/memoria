@@ -6,7 +6,7 @@
 
 | 処理 | 使うもの |
 | --- | --- |
-| 会話（`ChatSession#send_message`。Discord bot、`/api/chats`） | claude -p（`CLAUDE_CLI_MODEL`。込み入った会話では `CLAUDE_CLI_DEEP_MODEL`） |
+| 会話（`ChatSession#send_message`。Discord bot、`/api/chats`） | claude -p（`CLAUDE_CLI_CHAT_MODEL`。未設定なら `CLAUDE_CLI_MODEL`。込み入った会話では `CLAUDE_CLI_DEEP_MODEL`） |
 | 思考ループと予定の実行（`Thinking::Thinker`） | claude -p（`CLAUDE_CLI_MODEL`） |
 | ツールを使わない生成（`LlmClient#generate`）: 振り返り（SN）、タグ付け、睡眠フェーズ | claude -p（`CLAUDE_CLI_LIGHT_MODEL`） |
 | Web検索 | Claude Code の WebSearch・WebFetch（会話と思考ループの両方で使える） |
@@ -22,6 +22,7 @@
 ```bash
 MEMORIA_AGENT_BACKEND=claude_cli
 CLAUDE_CLI_MODEL=sonnet         # 会話と思考ループ（既定: sonnet）
+# CLAUDE_CLI_CHAT_MODEL=haiku   # 会話だけ別のモデルにする（未設定なら CLAUDE_CLI_MODEL）
 CLAUDE_CLI_DEEP_MODEL=opus      # 込み入った会話で切り替えるモデル（既定: opus）
 CLAUDE_CLI_LIGHT_MODEL=haiku    # 振り返りなどの軽い作業（既定: haiku）
 # CLAUDE_CLI_COMMAND=claude     # claude コマンドのパス
@@ -103,6 +104,7 @@ LLM_CLI_BACKEND=codex
 CODEX_CLI_HOME=/path/to/codex-home-for-memoria   # memoria 専用の CODEX_HOME（下を参照）
 # CODEX_CLI_COMMAND=codex                        # codex コマンドのパス（PATH にないとき。nvm などで入れたものはそのパス）
 # CODEX_CLI_MODEL=gpt-6.1-sol:medium              # 会話と思考ループ（"モデル名:推論の強さ" でも書ける）
+# CODEX_CLI_CHAT_MODEL=gpt-6-luna:medium          # 会話だけ別のモデルにする（未設定なら CODEX_CLI_MODEL）
 # CODEX_CLI_DEEP_MODEL=gpt-6.1-sol:high           # 込み入った会話で切り替えるモデル
 # CODEX_CLI_LIGHT_MODEL=gpt-6-luna:low            # 振り返りなどの軽い作業
 # CODEX_CLI_SANDBOX=workspace-write               # CLAUDE_CLI_BUILTIN_TOOLS=default のときのサンドボックス

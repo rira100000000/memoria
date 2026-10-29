@@ -451,7 +451,7 @@ class ChatSession
       character: @character,
       scene: :chat,
       platform: @platform,
-      model: ClaudeCli.model(deep: deep),
+      model: ClaudeCli.chat_model(deep: deep),
       trigger_type: @trigger_type,
       on_progress: on_progress
     )

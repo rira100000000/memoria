@@ -17,14 +17,15 @@ RSpec.describe ChatSession, "with the claude -p backend" do
   end
 
   around do |example|
-    original = ENV.to_h.slice("VAULT_ROOT", "MEMORIA_AGENT_BACKEND", "CLAUDE_CLI_MODEL", "CLAUDE_CLI_DEEP_MODEL")
+    original = ENV.to_h.slice("VAULT_ROOT", "MEMORIA_AGENT_BACKEND", "CLAUDE_CLI_MODEL", "CLAUDE_CLI_DEEP_MODEL", "CLAUDE_CLI_CHAT_MODEL")
     ENV["VAULT_ROOT"] = vault_root
     ENV["MEMORIA_AGENT_BACKEND"] = "claude_cli"
     ENV["CLAUDE_CLI_MODEL"] = "sonnet"
     ENV["CLAUDE_CLI_DEEP_MODEL"] = "opus"
+    ENV.delete("CLAUDE_CLI_CHAT_MODEL")
     example.run
   ensure
-    %w[VAULT_ROOT MEMORIA_AGENT_BACKEND CLAUDE_CLI_MODEL CLAUDE_CLI_DEEP_MODEL].each { |k| ENV[k] = original[k] }
+    %w[VAULT_ROOT MEMORIA_AGENT_BACKEND CLAUDE_CLI_MODEL CLAUDE_CLI_DEEP_MODEL CLAUDE_CLI_CHAT_MODEL].each { |k| ENV[k] = original[k] }
     FileUtils.remove_entry(vault_root)
   end
 
@@ -45,6 +46,15 @@ RSpec.describe ChatSession, "with the claude -p backend" do
       scene: :chat, platform: :discord, model: "sonnet", character: character,
       prompt: a_string_including("User: 前の話", "アオイ: 前の返事", "Userの新しいメッセージ:\nやあ")
     ))
+  end
+
+  it "answers with the chat model when one is set" do
+    ENV["CLAUDE_CLI_CHAT_MODEL"] = "haiku"
+    allow(runner).to receive(:run).and_return(claude_result("やあ"))
+
+    session.send_message("こんにちは")
+
+    expect(runner).to have_received(:run).with(hash_including(model: "haiku"))
   end
 
   it "tells the character that a reply ends its turn and where earlier conversations are" do

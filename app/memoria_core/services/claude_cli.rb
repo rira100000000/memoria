@@ -7,8 +7,9 @@
 # サブスクリプションで使う場合の扱いは Anthropic の規約に従うこと（docs/CLAUDE_CLI_BACKEND.md）。
 #
 # - 会話と思考ループ（ツールを使うループ）: CLAUDE_CLI_MODEL（込み入った会話では CLAUDE_CLI_DEEP_MODEL）
+#   会話だけ別のモデルにするときは CLAUDE_CLI_CHAT_MODEL（未設定なら CLAUDE_CLI_MODEL）
 # - 振り返り・タグ付け・睡眠フェーズ・ペットの返答などの軽い作業（LlmClient#generate）: CLAUDE_CLI_LIGHT_MODEL
-# - codex のときは CODEX_CLI_MODEL / CODEX_CLI_DEEP_MODEL / CODEX_CLI_LIGHT_MODEL（"モデル名:推論の強さ" の形でも書ける）
+# - codex のときは CODEX_CLI_MODEL / CODEX_CLI_CHAT_MODEL / CODEX_CLI_DEEP_MODEL / CODEX_CLI_LIGHT_MODEL（"モデル名:推論の強さ" の形でも書ける）
 # - 埋め込み・Web検索・音声の書き起こしは Gemini のまま（Claude に同じ機能がないため）
 #
 # claude -p が使えないときに Gemini で代わりに動くことはしない。会話では返答できなかったと返し、
@@ -54,14 +55,21 @@ module ClaudeCli
       deep ? ENV.fetch("CLAUDE_CLI_DEEP_MODEL", "opus") : ENV.fetch("CLAUDE_CLI_MODEL", "sonnet")
     end
 
+    # 会話で使うモデル。会話用の設定がなければ普段のモデル。deep: true は model(deep: true) と同じ
+    def chat_model(deep: false)
+      return model(deep: true) if deep
+
+      ENV[codex? ? "CODEX_CLI_CHAT_MODEL" : "CLAUDE_CLI_CHAT_MODEL"].presence || model
+    end
+
     # 記憶の整理などの軽い作業で使うモデル
     def light_model
       codex? ? ENV.fetch("CODEX_CLI_LIGHT_MODEL", CODEX_DEFAULT_LIGHT_MODEL) : ENV.fetch("CLAUDE_CLI_LIGHT_MODEL", "haiku")
     end
 
-    # 会話の途中で強いモデルに切り替えられるか（普段のモデルと別のものが設定されているか）
+    # 会話の途中で強いモデルに切り替えられるか（会話のモデルと別のものが設定されているか）
     def deep_model_available?
-      enabled? && model(deep: true).present? && model(deep: true) != model
+      enabled? && model(deep: true).present? && model(deep: true) != chat_model
     end
 
     # 動けなかったことを連絡手段に知らせる。続けて失敗しても、知らせるのは1時間に1回まで（プロセスごとに数える）
