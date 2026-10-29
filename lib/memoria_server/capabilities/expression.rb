@@ -11,7 +11,6 @@ module MemoriaServer
         "surprise" => "驚き",
         "anger" => "怒り・強い不満",
         "sadness" => "悲しい・寂しい・心配",
-        "shy" => "照れ",
       }.freeze
 
       EMOTES = {

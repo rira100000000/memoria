@@ -14,7 +14,7 @@ RSpec.describe MemoriaServer::Capabilities::Expression do
   end
 
   it "accepts symbol keys" do
-    expect(capability.parse_value(expression: { face: "shy", emote: "none" })).to eq(face: "shy", emote: "none")
+    expect(capability.parse_value(expression: { face: "surprise", emote: "none" })).to eq(face: "surprise", emote: "none")
   end
 
   it "makes an unknown or missing emote 'none'" do
