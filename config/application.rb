@@ -1,4 +1,5 @@
 require_relative "boot"
+require_relative "log_secret_filter"
 
 require "rails"
 # Pick the frameworks you want:
@@ -40,6 +41,7 @@ module Memoria
     # in config/environments, which are processed later.
     #
     config.time_zone = "Asia/Tokyo"
+    config.log_formatter = LogSecretFilter::Formatter.new
     # config.eager_load_paths << Rails.root.join("extras")
 
     # Only loads a smaller set of middleware suitable for API only apps.
