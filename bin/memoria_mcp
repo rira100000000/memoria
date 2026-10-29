@@ -24,33 +24,51 @@ abort "usage: bin/memoria_mcp --character ID --scene thinking|chat" unless optio
 protocol_out = $stdout.dup
 $stdout.reopen($stderr)
 
-require_relative "../config/environment"
+# ツール一覧のファイルがあれば、Rails を読み込むのを最初のツール呼び出しまで遅らせる（lib/lazy_mcp.rb）
+tools_path = ENV["MEMORIA_MCP_TOOLS"]
+tools_path = nil if tools_path.to_s.empty? # .presence は Rails の機能。ここはまだ読み込む前
 
-character = Character.find(options[:character])
-provider = ClaudeCli::ToolProvider.build(
-  character: character,
-  scene: options[:scene],
-  platform: options[:platform],
-  trigger_type: options[:trigger],
-  long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence
-)
+build_server = lambda do
+  require_relative "../config/environment"
 
-usage_context = begin
-  JSON.parse(ENV["MEMORIA_MCP_CONTEXT"].presence || "{}")
-rescue JSON::ParserError
-  {}
+  character = Character.find(options[:character])
+  provider = ClaudeCli::ToolProvider.build(
+    character: character,
+    scene: options[:scene],
+    platform: options[:platform],
+    trigger_type: options[:trigger],
+    long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence
+  )
+
+  usage_context = begin
+    JSON.parse(ENV["MEMORIA_MCP_CONTEXT"].presence || "{}")
+  rescue JSON::ParserError
+    {}
+  end
+  usage_log = ClaudeCli::ToolUsageLog.new(
+    scene: options[:scene],
+    trigger: options[:trigger],
+    platform: options[:platform],
+    character_id: character.id,
+    context: usage_context
+  )
+
+  ClaudeCli::McpServer.new(
+    provider: provider,
+    output: protocol_out,
+    events_path: ENV["MEMORIA_MCP_EVENTS"],
+    usage_log: usage_log
+  )
 end
-usage_log = ClaudeCli::ToolUsageLog.new(
-  scene: options[:scene],
-  trigger: options[:trigger],
-  platform: options[:platform],
-  character_id: character.id,
-  context: usage_context
-)
 
-ClaudeCli::McpServer.new(
-  provider: provider,
-  output: protocol_out,
-  events_path: ENV["MEMORIA_MCP_EVENTS"],
-  usage_log: usage_log
-).run
+frontend =
+  if tools_path
+    require_relative "../lib/lazy_mcp"
+    begin
+      LazyMcp::Frontend.new(tools_path: tools_path, boot: build_server, output: protocol_out)
+    rescue Errno::ENOENT, JSON::ParserError, ArgumentError
+      nil # 読めなければ、これまでどおり最初に読み込む
+    end
+  end
+
+(frontend || build_server.call).run

@@ -88,6 +88,66 @@ RSpec.describe ClaudeCli::Runner do
     expect(JSON.parse(env["MEMORIA_MCP_CONTEXT"])).to eq("wakeup_id" => 7, "purpose" => "朝の見回り")
   end
 
+  context "with the lazy MCP tool list" do
+    # claude の代わり。MCP の設定と、ツール一覧のファイルの中身を、claude が読む時点で書き残す
+    def run_chat(**opts)
+      path = fake_claude(<<~RUBY)
+        env = config.dig("mcpServers", "memoria", "env")
+        File.write(#{File.join(dir, "config.json").inspect}, JSON.generate(config))
+        tools = env["MEMORIA_MCP_TOOLS"]
+        File.write(#{File.join(dir, "tools.copy.json").inspect}, File.read(tools)) if tools && File.exist?(tools)
+        puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")
+      RUBY
+      scene = opts.delete(:scene) || :chat
+      described_class.new(command: path, **opts)
+        .run(system_prompt: "S", prompt: "P", character: character, scene: scene, model: "haiku", platform: :discord)
+    end
+
+    def mcp_env = JSON.parse(File.read(File.join(dir, "config.json"))).dig("mcpServers", "memoria", "env")
+
+    it "writes the chat tools (with long_think) for the MCP server and tells it where the file is" do
+      run_chat
+
+      expect(mcp_env["MEMORIA_MCP_TOOLS"]).to end_with("tools.json")
+      tools = JSON.parse(File.read(File.join(dir, "tools.copy.json")))
+      names = tools.map { |tool| tool["name"] }
+      expect(names).to include("semantic_search", "long_think")
+      expect(tools.first).to include("name", "description", "inputSchema")
+    end
+
+    it "lists the same tools the MCP server itself would" do
+      run_chat
+
+      provider = ClaudeCli::ToolProvider.build(character: character, scene: :chat, platform: :discord, long_think_path: File.join(dir, "x.json"))
+      expected = provider.tools.map { |tool| MemoriaServer::Plugin::ToolSchema.gemini_to_json_schema(tool) }
+      expect(JSON.parse(File.read(File.join(dir, "tools.copy.json")))).to eq(JSON.parse(JSON.generate(expected)))
+    end
+
+    it "is not used for the thinking scene or when switched off" do
+      run_chat(scene: :thinking)
+      expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
+
+      run_chat(lazy_mcp: false)
+      expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
+    end
+
+    it "falls back to loading Rails eagerly when the tool list cannot be made" do
+      allow(ClaudeCli::ToolProvider).to receive(:build).and_raise(StandardError, "boom")
+
+      expect { run_chat }.not_to raise_error
+      expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
+    end
+
+    it "can be switched off with CLAUDE_CLI_LAZY_MCP=0" do
+      original = ENV["CLAUDE_CLI_LAZY_MCP"]
+      ENV["CLAUDE_CLI_LAZY_MCP"] = "0"
+      run_chat
+      expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
+    ensure
+      ENV["CLAUDE_CLI_LAZY_MCP"] = original
+    end
+  end
+
   it "records built-in web searches as tool events" do
     result = run_with(<<~RUBY)
       puts JSON.generate(type: "system", subtype: "init")

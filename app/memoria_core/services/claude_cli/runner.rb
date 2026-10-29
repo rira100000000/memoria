@@ -46,7 +46,8 @@ module ClaudeCli
                    settings: ENV["CLAUDE_CLI_SETTINGS"].presence,
                    codex_home: ENV["CODEX_CLI_HOME"].presence,
                    codex_sandbox: ENV["CODEX_CLI_SANDBOX"].presence,
-                   mcp_command: Rails.root.join("bin/memoria_mcp").to_s)
+                   mcp_command: Rails.root.join("bin/memoria_mcp").to_s,
+                   lazy_mcp: ENV.fetch("CLAUDE_CLI_LAZY_MCP", "1") != "0")
       @backend =
         case backend.to_s
         when "codex"
@@ -69,6 +70,7 @@ module ClaudeCli
       @idle_timeout = idle_timeout
       @poll_interval = poll_interval
       @mcp_command = mcp_command
+      @lazy_mcp = lazy_mcp
     end
 
     # @param character [Character, nil] 指定するとそのキャラクターのツールを MCP で渡す。nil ならツールなし
@@ -86,7 +88,8 @@ module ClaudeCli
         work_dir = File.join(dir, "work")
         Dir.mkdir(work_dir)
 
-        config = character && mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context)
+        tools_path = character && write_tool_list(dir, character, scene, platform, long_think)
+        config = character && mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context, tools_path)
 
         # キャラクターとして動くときだけ、指定された作業ディレクトリで動かす（軽い作業は空のディレクトリ）
         work_dir = @work_dir if character && @work_dir
@@ -105,12 +108,29 @@ module ClaudeCli
 
     private
 
-    def mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context = nil)
+    # ツールの一覧を、Rails が読み込み済みのここで作ってファイルに書く。bin/memoria_mcp はこれがあれば、
+    # Rails の読み込み（約2.4秒）を最初のツール呼び出しまで遅らせる（lib/lazy_mcp.rb）。
+    # 会話の場面だけ（思考ループは、ツールを使うのが普通なので対象にしない）。作れなければ nil（従来どおり最初に読み込む）
+    def write_tool_list(dir, character, scene, platform, long_think)
+      return nil unless @lazy_mcp && scene.to_s == "chat"
+
+      provider = ToolProvider.build(character: character, scene: scene, platform: platform, long_think_path: long_think.path)
+      tools = provider.tools.map { |tool| MemoriaServer::Plugin::ToolSchema.gemini_to_json_schema(tool) }
+      path = File.join(dir, "tools.json")
+      File.write(path, JSON.generate(tools))
+      path
+    rescue StandardError => e
+      Rails.logger.warn("[ClaudeCli::Runner] could not write the tool list, loading Rails eagerly: #{e.class}: #{e.message}")
+      nil
+    end
+
+    def mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context = nil, tools_path = nil)
       args = ["--character", character.id.to_s, "--scene", scene.to_s]
       args += ["--trigger", trigger_type] if trigger_type
       args += ["--platform", platform.to_s] if platform
       env = { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s }
       env["MEMORIA_MCP_CONTEXT"] = JSON.generate(usage_context) if usage_context.present?
+      env["MEMORIA_MCP_TOOLS"] = tools_path if tools_path
       {
         mcpServers: {
           memoria: {
