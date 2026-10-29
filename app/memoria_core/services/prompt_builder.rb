@@ -65,11 +65,14 @@ class PromptBuilder
   # LLMに渡す最終的な system instruction を構築
   # @param context [Hash] :retrieved_context, :narrative_summary, :behavior_principles, :prospective_memory
   # @param channel [String, nil] 会話チャネル情報（例: "Discord #general", "API", "autonomous"）
-  def build(context:, channel: nil)
+  # @param dynamic [Boolean] false にすると、毎回変わる節（時刻・今日の会話の流れ・記憶・前向き記憶・予定）を入れない。
+  #   会話のあいだ claude -p を起動したままにするとき、system prompt は最初に1回しか渡せないので、
+  #   毎回変わる節は build_dynamic で作って、毎ターンの user メッセージに添える
+  def build(context:, channel: nil, dynamic: true)
     sections = []
 
     # 時刻情報
-    sections << "Current time is #{Time.now.strftime('%Y-%m-%d %H:%M:%S %A')}."
+    sections << time_section if dynamic
 
     # チャネル情報
     if channel
@@ -109,6 +112,30 @@ class PromptBuilder
     custom_instructions = read_vault_file("custom_instructions.md")
     sections << custom_instructions if custom_instructions
 
+    sections.concat(dynamic_sections(context)) if dynamic
+
+    # memoria_instruction は最後に（最も重要な指示として）
+    sections << MEMORIA_INSTRUCTION
+
+    sections.join("\n\n")
+  end
+
+  # build(dynamic: false) が入れない、毎回変わる節をまとめて作る。
+  # 予定と前向き記憶は、前に渡したものから変わっていないときに省ける（古いものが積み重ならないように）
+  def build_dynamic(context:, prospective: true, schedules: true)
+    [time_section, *dynamic_sections(context, prospective: prospective, schedules: schedules)].join("\n\n")
+  end
+
+  private
+
+  def time_section
+    "Current time is #{Time.now.strftime('%Y-%m-%d %H:%M:%S %A')}."
+  end
+
+  # 今日の会話の流れ・記憶・前向き記憶・予定（build の中で、この順に並ぶ）
+  def dynamic_sections(context, prospective: true, schedules: true)
+    sections = []
+
     # ナラティブサマリー
     if context[:narrative_summary] && !context[:narrative_summary].empty?
       sections << "## 今日の会話の流れ\n#{context[:narrative_summary]}"
@@ -124,7 +151,7 @@ class PromptBuilder
     MEM
 
     # 前向き記憶
-    if context[:prospective_memory] && !context[:prospective_memory].empty?
+    if prospective && context[:prospective_memory] && !context[:prospective_memory].empty?
       sections << <<~PM
         ## 前向き記憶（過去の会話で挙がったアクションアイテム）
         以下は過去の会話で出たアクションアイテムの一覧である。話題に自然に関連する場合にのみ、さりげなく触れてよい。
@@ -133,7 +160,7 @@ class PromptBuilder
     end
 
     # スケジュール情報
-    if context[:upcoming_schedules] && !context[:upcoming_schedules].empty?
+    if schedules && context[:upcoming_schedules] && !context[:upcoming_schedules].empty?
       sections << <<~SCHED
         ## あなたの予定
         以下はあなたの今後の予定である（自分で入れたものと、ユーザーに頼まれたものを含む）。会話の流れで自然に関連する場合は、予定の存在を踏まえて振る舞え。不要になった予定はcancel_scheduleツールでキャンセルできる。「承認待ちの提案」は、ユーザーが承認を明言したらapprove_scheduleツールで有効にできる。
@@ -141,13 +168,8 @@ class PromptBuilder
       SCHED
     end
 
-    # memoria_instruction は最後に（最も重要な指示として）
-    sections << MEMORIA_INSTRUCTION
-
-    sections.join("\n\n")
+    sections
   end
-
-  private
 
   # キャラの vault 直下のファイルを読む。なければ nil
   def read_vault_file(name)
