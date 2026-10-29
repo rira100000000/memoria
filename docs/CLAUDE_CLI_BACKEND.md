@@ -85,6 +85,14 @@ bin/tool_usage --json                              # 集計を JSON で
 
 会話では `use_deep_model` ツールが使えます。開発の相談や設計の壁打ちのような込み入った会話になったとキャラクターが判断すると、このツールを呼びます。その返答から `CLAUDE_CLI_DEEP_MODEL` で作り直し、会話が終わる（セッションが閉じる）まで強いモデルのまま続きます。
 
+### 表情の指定（expression）
+
+立ち絵のクライアントが、リクエストの `x_memoria.wants` に `expression` を入れると、キャラクターは返答といっしょに、立ち絵に出す表情（`face`）と演出（`emote`）を選びます。claude -p の構造化返答に `expression` の項目を足し、使い方の指示を system prompt に加えます。値はレスポンスの `x_memoria.expression` に載ります（`{ "face": "joy", "emote": "joy-clap" }`。演出なしは `"none"`）。
+
+- 語彙は `lib/memoria_server/capabilities/expression.rb`。クライアントが持つ表情・エモートの ID と一致させる
+- `wants` に入れたときだけ働く。Discord などには影響しない。Gemini のバックエンドでは働かない（値は返らない）
+- 語彙にない `face` は返さず、語彙にない `emote` は `none` にする
+
 ### 使えなかったとき
 
 claude -p が失敗したとき（異常終了、タイムアウト、利用枠切れなど）、Gemini で代わりに動くことはしません。黙って止まらないように知らせます。

@@ -347,4 +347,76 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     expect(session.send_message("やあ")[:response]).to eq("Gemini")
     expect(session.tool_definitions.first[:functionDeclarations].map { |f| f[:name] }).not_to include("use_deep_model")
   end
+
+  context "with the expression capability" do
+    let(:expression) { MemoriaServer::Capability.find(:expression) }
+
+    def expression_reply(expression_value)
+      claude_result("やったね", structured: { "reply" => "やったね", "next_action" => "wait_for_user", "expression" => expression_value }.compact)
+    end
+
+    it "adds the fields to the reply schema and the instruction to the prompt" do
+      allow(runner).to receive(:run).and_return(expression_reply("face" => "joy", "emote" => "none"))
+      session.add_reply_capabilities([ expression ])
+
+      session.send_message("おめでとう")
+
+      expect(runner).to have_received(:run).with(hash_including(
+        system_prompt: a_string_including("expression", "joy-clap"),
+        json_schema: hash_including(
+          properties: hash_including(:reply, :next_action, :expression),
+          required: %w[reply next_action expression]
+        )
+      ))
+    end
+
+    it "returns the expression the character chose" do
+      allow(runner).to receive(:run).and_return(expression_reply("face" => "joy", "emote" => "joy-clap"))
+      session.add_reply_capabilities([ expression ])
+
+      result = session.send_message("おめでとう")
+
+      expect(result[:response]).to eq("やったね")
+      expect(result[:extras]).to eq(expression: { face: "joy", emote: "joy-clap" })
+    end
+
+    it "treats an unknown emote as no emote and drops an unknown face" do
+      allow(runner).to receive(:run).and_return(expression_reply("face" => "joy", "emote" => "dance"))
+      session.add_reply_capabilities([ expression ])
+      expect(session.send_message("a")[:extras]).to eq(expression: { face: "joy", emote: "none" })
+
+      allow(runner).to receive(:run).and_return(expression_reply("face" => "grin", "emote" => "joy-clap"))
+      session.add_reply_capabilities([ expression ])
+      expect(session.send_message("b")[:extras]).to eq({})
+    end
+
+    it "returns no extras when the character did not answer in the structured form" do
+      allow(runner).to receive(:run).and_return(claude_result("本文だけ"))
+      session.add_reply_capabilities([ expression ])
+
+      expect(session.send_message("やあ")[:extras]).to eq({})
+    end
+
+    it "keeps the schema unchanged without capabilities" do
+      allow(runner).to receive(:run).and_return(structured_reply("こんにちは", "wait_for_user"))
+
+      result = session.send_message("やあ")
+
+      expect(runner).to have_received(:run).with(hash_including(json_schema: ChatSession::REPLY_SCHEMA))
+      expect(result[:extras]).to eq({})
+    end
+
+    it "does nothing without the claude -p backend" do
+      ENV["MEMORIA_AGENT_BACKEND"] = nil
+      instruction = nil
+      allow(llm_client).to receive(:chat) do |_messages, system_instruction:, **|
+        instruction = system_instruction
+        { text: "Gemini", function_calls: [], usage: {} }
+      end
+      session.add_reply_capabilities([ expression ])
+
+      expect(session.send_message("やあ")).not_to have_key(:extras)
+      expect(instruction).not_to include("expression")
+    end
+  end
 end

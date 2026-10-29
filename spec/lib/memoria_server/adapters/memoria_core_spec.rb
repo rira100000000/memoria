@@ -5,7 +5,10 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
   let(:adapter) { described_class.new }
   let(:session) { instance_double(ChatSession, record: instance_double(ChatSessionRecord, id: 7, message_count: 4)) }
 
-  before { allow(ChatSession).to receive(:find_or_create).and_return(session) }
+  before do
+    allow(ChatSession).to receive(:find_or_create).and_return(session)
+    allow(session).to receive(:add_reply_capabilities)
+  end
 
   def respond(context = {})
     adapter.respond("こんにちは", context: { character_id: character.id }.merge(context)).to_a
@@ -24,6 +27,24 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
       expect(respond).to eq([
         { delta: "調べてみるね" }, { message_break: true },
         { delta: "分かったよ" }, { done: true, metadata: { usage: nil } }
+      ])
+    end
+
+    it "passes the capabilities the client wants to the session" do
+      respond(x_memoria: { wants: %w[expression unknown] })
+
+      expect(session).to have_received(:add_reply_capabilities).with([ MemoriaServer::Capability.find(:expression) ])
+    end
+
+    it "returns the values the reply came with as x_memoria, before done" do
+      allow(session).to receive(:send_message).and_return(
+        response: "やったね", usage: nil, extras: { expression: { face: "joy", emote: "joy-clap" } }
+      )
+
+      expect(respond(x_memoria: { wants: %w[expression] })).to eq([
+        { delta: "やったね" },
+        { x_memoria: { expression: { face: "joy", emote: "joy-clap" } } },
+        { done: true, metadata: { usage: nil } }
       ])
     end
 

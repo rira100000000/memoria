@@ -7,20 +7,23 @@ module MemoriaServer
   #   - value_extractor: LLM が返した JSON Hash から自分の値を取り出す proc
   #   - prompt_segment: capability 固有の system prompt 追記（任意）。複数 capability が
   #     同時に有効なときは join される。指示の重複を避けたい場合は短く書くのがよい。
+  #   - reply_schema: claude -p の構造化返答に足す項目（任意。キー => JSON Schema）。
+  #     持つ capability は、ストリームのタグ方式ではなく、返答といっしょに値を返す
   #
   # クライアントはリクエストの `x_memoria.wants` に文字列で capability 名を列挙する。
   # 例: `{"x_memoria": {"wants": ["emotion", "motion"]}}`
   class Capability
-    attr_reader :name, :value_format, :prompt_segment
+    attr_reader :name, :value_format, :prompt_segment, :reply_schema
 
-    def initialize(name:, value_format:, value_extractor:, prompt_segment: nil)
+    def initialize(name:, value_format:, value_extractor:, prompt_segment: nil, reply_schema: nil)
       @name = name.to_sym
       @value_format = value_format
       @value_extractor = value_extractor
       @prompt_segment = prompt_segment
+      @reply_schema = reply_schema
     end
 
-    # @param json_obj [Hash] LLM が `<x_memoria>{...}</x_memoria>` 内に返した JSON Hash
+    # @param json_obj [Hash] LLM が `<x_memoria>{...}</x_memoria>` 内に返した JSON Hash（claude -p では構造化返答）
     # @return [Object, nil] 該当値（不正値の場合は nil）
     def parse_value(json_obj)
       return nil unless json_obj.is_a?(Hash)

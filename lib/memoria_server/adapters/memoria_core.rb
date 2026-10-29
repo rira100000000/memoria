@@ -20,6 +20,8 @@ module MemoriaServer
           character = Character.find(character_id)
           session = build_session(character, context)
           if session.use_claude_cli?
+            # クライアントが wants に挙げた capability のうち、返答といっしょに値を返すもの（表情など）
+            session.add_reply_capabilities(MemoriaServer::Capability.resolve_many(context.dig(:x_memoria, :wants)))
             # claude -p は返答を最後にまとめて返す。ツールを使う前に書いた文（「調べてみるね」など）と、
             # 続けて動くときの途中の返答は、そのつど区切りの付いたメッセージとして先に返す
             result = session.send_message(input, on_progress: ->(text) {
@@ -27,6 +29,7 @@ module MemoriaServer
               yielder << { message_break: true }
             })
             yielder << { delta: result[:response] }
+            yielder << { x_memoria: result[:extras] } if result[:extras].present?
             yielder << { done: true, metadata: { usage: result[:usage] } }
           else
             session.send_message_stream(input, tier: tier) do |chunk|

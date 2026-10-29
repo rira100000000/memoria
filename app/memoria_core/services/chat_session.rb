@@ -89,6 +89,17 @@ class ChatSession
     with_turn_lock { answer_message(user_message, on_progress: on_progress) }
   end
 
+  # claude -p の構造化返答に capability の項目（表情など）を足し、使い方の指示を system prompt に加える。
+  # セッションはリクエストごとに作るので、足した分はそのリクエストだけに効く。claude -p 以外では何もしない
+  def add_reply_capabilities(capabilities)
+    return unless use_claude_cli?
+
+    @reply_capabilities = Array(capabilities).select(&:reply_schema)
+    return if @reply_capabilities.empty?
+
+    @extra_system_instruction = [@extra_system_instruction, *@reply_capabilities.map(&:prompt_segment)].map(&:to_s).reject(&:empty?).join("\n\n")
+  end
+
   # ユーザーの発言ではない出来事（任せた作業が終わった、予定の時刻になったなど）を、続いている会話の中で受けて話す。
   # 会話の外で考えると、会話で言ったことを知らないまま同じ報告を繰り返したり、済んだ話を始め直したりする。
   # 出来事そのものは履歴に入れず、話したことだけを入れる。claude -p でだけ使える
@@ -133,7 +144,7 @@ class ChatSession
       end
       @record.append_message("model", reply[:final], work: reply[:work])
       @chat_logger.log_ai_message(reply[:final])
-      return { response: reply[:shown], usage: nil }
+      return { response: reply[:shown], usage: nil, extras: reply[:extras] }
     end
 
     # Gemini API 用メッセージ構築
@@ -375,6 +386,25 @@ class ChatSession
 
   # @return [Hash] final: 最後の返答、shown: 呼び出し元が見せる文（途中経過を送れないときは、続けて動いた分もまとめる）、
   #   work: 最後の返答を書くまでにした作業の記録
+  # 返答の構造化出力の形。capability の項目を足していれば、その項目も必須にする
+  def reply_schema
+    return REPLY_SCHEMA if @reply_capabilities.blank?
+
+    extra = @reply_capabilities.reduce({}) { |fields, capability| fields.merge(capability.reply_schema) }
+    REPLY_SCHEMA.merge(
+      properties: REPLY_SCHEMA[:properties].merge(extra),
+      required: REPLY_SCHEMA[:required] + extra.keys.map(&:to_s),
+    )
+  end
+
+  # 構造化返答から、capability の値を取り出す（取れなかった capability は含めない）
+  def reply_extras(answer)
+    Array(@reply_capabilities).each_with_object({}) do |capability, extras|
+      value = capability.parse_value(answer)
+      extras[capability.name] = value unless value.nil?
+    end
+  end
+
   def send_via_claude(system_instruction, on_progress: nil, event: nil)
     # 途中経過も会話ログに残す
     progress = on_progress && lambda { |text|
@@ -401,7 +431,7 @@ class ChatSession
         work = nil
       end
       unless reply[:next_action] == "continue" && continued < MAX_CONTINUATIONS
-        return { final: text, shown: [*earlier, text].join("\n\n"), work: work }
+        return { final: text, shown: [*earlier, text].join("\n\n"), work: work, extras: reply[:extras] }
       end
 
       # 続ける: いまの返答を先に届けて会話に残し、もう一度動かす
@@ -435,6 +465,7 @@ class ChatSession
       followups: followups,
       next_action: answer["next_action"],
       next_step: answer["next_step"],
+      extras: reply_extras(answer),
       work: work,
     }
   end
@@ -447,7 +478,7 @@ class ChatSession
     run = ClaudeCli::Runner.new.run(
       system_prompt: system_instruction,
       prompt: claude_prompt(next_step, event),
-      json_schema: REPLY_SCHEMA,
+      json_schema: reply_schema,
       character: @character,
       scene: :chat,
       platform: @platform,
