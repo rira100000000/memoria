@@ -34,7 +34,9 @@ module ClaudeCli
       # @param dir [String] 実行ごとの一時ディレクトリ（設定ファイルなどを置く）
       # @param mcp_config [Hash, nil] キャラクターのツールを出す MCP サーバの設定（Claude Code の mcpServers の形）
       # @param builtin [Array<String>] 使わせる組み込みツール（["default"] なら全部）
-      def command_line(dir:, system_prompt:, model:, mcp_config:, builtin:, json_schema: nil)
+      # @param persistent [Boolean] true なら、標準入力に JSON の user メッセージを1行ずつ受け取る形（--input-format stream-json）で
+      #   起動する。起動したまま何往復もする（PersistentClaude::Session）。false は、プロンプトを標準入力に渡して1回で終わる
+      def command_line(dir:, system_prompt:, model:, mcp_config:, builtin:, json_schema: nil, persistent: false)
         cmd = [
           @command, "-p",
           "--output-format", "stream-json", "--verbose",
@@ -47,6 +49,7 @@ module ClaudeCli
           "--max-turns", @max_turns.to_s
         ]
         cmd += ["--json-schema", JSON.generate(json_schema)] if json_schema
+        cmd += ["--input-format", "stream-json"] if persistent
         if mcp_config
           config_path = File.join(dir, "mcp.json")
           File.write(config_path, JSON.generate(mcp_config))

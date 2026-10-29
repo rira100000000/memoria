@@ -31,6 +31,11 @@ module ClaudeCli
       ENV["MEMORIA_AGENT_BACKEND"] == "claude_cli"
     end
 
+    # 会話のあいだ claude -p を起動したままにするか（CLAUDE_CLI_PERSISTENT=1。既定は切）。claude -p のときだけ
+    def persistent?
+      enabled? && backend == "claude" && ENV["CLAUDE_CLI_PERSISTENT"] == "1"
+    end
+
     # 実行に使うコマンド: "claude"（claude -p）か "codex"（codex exec）
     def backend
       name = ENV["LLM_CLI_BACKEND"].to_s.strip.downcase

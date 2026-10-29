@@ -2,7 +2,8 @@
 # claude -p --input-format stream-json の代わりに動く、テスト用の偽物。
 # 標準入力の user メッセージを1行ずつ読み、assistant 行と result 行を返す。
 # 本文のキーワードで振る舞いを変える: CRASH（何も返さず終了）、SLOW（4秒待つ）、
-# UNSOLICITED（答えのあと、頼まれていない出力をする）、BACKGROUND（裏の作業が残る）
+# UNSOLICITED（答えのあと、頼まれていない出力をする）、BACKGROUND（裏の作業が残る）、
+# TOOL（MCP のツールを使ったことにして、記録のファイルに1行書く）、PROGRESS（ツールを使う前に一言書く）
 require "json"
 $stdin.set_encoding("UTF-8")
 $stdout.set_encoding("UTF-8")
@@ -10,6 +11,8 @@ $stdout.sync = true
 log_path = ENV["FAKE_CLAUDE_LOG"]
 n = 0
 background = false
+mcp_config = ARGV.include?("--mcp-config") ? JSON.parse(File.read(ARGV[ARGV.index("--mcp-config") + 1])) : {}
+events_path = mcp_config.dig("mcpServers", "memoria", "env", "MEMORIA_MCP_EVENTS")
 
 def say(hash)
   puts JSON.generate(hash)
@@ -26,9 +29,15 @@ $stdin.each_line do |line|
   end
   say(type: "system", subtype: "init", session_id: "fake") if n == 1
   sleep 4 if content.include?("SLOW")
+  if content.include?("TOOL") && events_path
+    File.open(events_path, "a") { |f| f.puts(JSON.generate(name: "semantic_search", args: { query: "n#{n}" }, result: { response: "r#{n}" })) }
+  end
   if content.include?("BACKGROUND")
     background = true
     say(type: "system", subtype: "background_tasks_changed", tasks: [ { description: "ビルド" } ])
+  end
+  if content.include?("PROGRESS")
+    say(type: "assistant", message: { content: [ { type: "text", text: "調べてみるね" }, { type: "tool_use", id: "p#{n}", name: "WebSearch", input: { query: "x" } } ] })
   end
   say(type: "assistant", message: { content: [ { type: "tool_use", id: "t#{n}", name: "StructuredOutput", input: {} } ] })
   say(type: "result", subtype: "success", is_error: false, result: "",

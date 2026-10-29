@@ -16,6 +16,7 @@ OptionParser.new do |o|
   o.on("--scene SCENE") { |v| options[:scene] = v }
   o.on("--platform PLATFORM") { |v| options[:platform] = v }
   o.on("--trigger TYPE") { |v| options[:trigger] = v }
+  o.on("--record-id ID", Integer) { |v| options[:record_id] = v }
 end.parse!
 
 abort "usage: bin/memoria_mcp --character ID --scene thinking|chat" unless options[:character] && options[:scene]
@@ -37,7 +38,8 @@ build_server = lambda do
     scene: options[:scene],
     platform: options[:platform],
     trigger_type: options[:trigger],
-    long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence
+    long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence,
+    record_id: options[:record_id]
   )
 
   usage_context = begin
