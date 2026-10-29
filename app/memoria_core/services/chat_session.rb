@@ -111,9 +111,11 @@ class ChatSession
       @chat_logger.setup! unless @chat_logger.current_log_path
       @record.update!(full_log_path: @chat_logger.current_log_path) unless @record.full_log_path
 
-      system_instruction = build_system_instruction(build_context(event))
+      context = begin_claude_turn(event)
+      system_instruction = build_system_instruction(context, dynamic: !persistent_claude?)
       reply = send_via_claude(system_instruction, event: event)
       @record.append_message("model", reply[:final], work: reply[:work])
+      note_persistent_seen
       @chat_logger.log_ai_message(reply[:final])
       { response: reply[:shown] }
     end
@@ -130,9 +132,11 @@ class ChatSession
 
     # コンテキスト取得（記憶検索）
     context = build_context(user_message)
+    @turn_context = context
+    @persistent_key = nil
 
-    # システムインストラクション構築
-    system_instruction = build_system_instruction(context)
+    # システムインストラクション構築（常駐の claude には、毎回変わる節を入れない。毎ターンの user メッセージに添える）
+    system_instruction = build_system_instruction(context, dynamic: !persistent_claude?)
 
     # claude -p バックエンド。使えなければ返答できなかったことを返す（会話の履歴には残さない）
     if use_claude_cli?
@@ -143,6 +147,7 @@ class ChatSession
         return { response: ClaudeCli.failure_notice(e, what: "返答"), usage: nil }
       end
       @record.append_message("model", reply[:final], work: reply[:work])
+      note_persistent_seen
       @chat_logger.log_ai_message(reply[:final])
       return { response: reply[:shown], usage: nil, extras: reply[:extras] }
     end
@@ -417,6 +422,7 @@ class ChatSession
     # 先に届けて会話に残す（最後の返答は呼び出し元が届けて残す）
     tell = lambda { |text, work|
       @record.append_message("model", text, work: work)
+      note_persistent_seen
       progress ? progress.call(text) : @chat_logger.log_ai_message(text)
       earlier << text unless progress
     }
@@ -484,8 +490,10 @@ class ChatSession
       platform: @platform,
       model: ClaudeCli.chat_model(deep: deep),
       trigger_type: @trigger_type,
-      on_progress: on_progress
+      on_progress: on_progress,
+      persistence: persistence_for(next_step, event)
     )
+    @persistent_key = run.session_key
     # ツールがFLに記録すべき会話を返した場合、記録する
     run.tool_events.each do |event|
       Array(event[:result][:log]).each { |entry| @chat_logger.log_ai_message(entry) }
@@ -493,29 +501,126 @@ class ChatSession
     run
   end
 
+  # --- 会話のあいだ claude -p を起動したままにする（CLAUDE_CLI_PERSISTENT=1）---
+  #
+  # 常駐の claude は、会話の記録（ChatSessionRecord）ごとに1本。最初のターン（と、起動し直したとき）は会話の全文を渡し、
+  # 以降は「毎回変わる状況・常駐の claude が知らない発言・新しいメッセージ」だけを渡す。
+  # 常駐の claude が見た会話の範囲（seen）は、返答を会話の記録に追記するたびに覚えさせる。履歴と合わなくなったら
+  # （別のプロセスが会話に書き足した、記録が変わった）、その claude は捨てて、履歴から起動し直す。
+
+  def persistent_claude?
+    use_claude_cli? && ClaudeCli.persistent?
+  end
+
+  # claude を動かす前の準備（毎ターン変わる状況を覚え、前のターンの常駐の鍵を忘れる）
+  def begin_claude_turn(trigger)
+    @persistent_key = nil
+    @turn_context = build_context(trigger)
+  end
+
+  def persistence_for(next_step, event)
+    return nil unless persistent_claude? && @turn_context
+
+    {
+      record_id: @record.id,
+      verify: ->(seen) { persistent_history_ok?(seen) },
+      fresh_prompt: -> { claude_prompt(next_step, event, background: background_block(prospective: true, schedules: true)) },
+      resume_prompt: ->(seen) { persistent_resume_prompt(seen, next_step, event) }
+    }
+  end
+
+  # 常駐の claude が見た範囲が、いまの会話の履歴の先頭部分と同じか（会話は追記しかされないので、数と最後の1件で足りる）
+  def persistent_history_ok?(seen)
+    return false unless seen.is_a?(Hash) && seen[:count].to_i.positive?
+
+    all = messages
+    seen[:count] <= all.size && message_digest(all[seen[:count] - 1]) == seen[:tail]
+  end
+
+  def persistent_resume_prompt(seen, next_step, event)
+    unseen = messages[seen[:count]..] || []
+    # 最後は、いま届いた User のメッセージ（プロンプトの末尾で渡す）。出来事・続きの作業のときは、全部が知らない発言
+    unseen = unseen[0...-1] unless next_step || event
+    background = background_block(
+      prospective: text_digest(@turn_context[:prospective_memory]) != seen[:prospective],
+      schedules: text_digest(@turn_context[:upcoming_schedules]) != seen[:schedules]
+    )
+    lines = background.lines.map(&:chomp) + [ "" ]
+    lines.concat(history_lines(unseen, "前に渡した会話のあとに、別の場所であった会話（あなたの返答を含む）:"))
+    lines.concat(prompt_tail_lines(next_step, event))
+    lines.join("\n")
+  end
+
+  # 毎ターン変わる状況（時刻・記憶・予定など）。system prompt の代わりに、user メッセージの先頭に添える。
+  # 予定と前向き記憶は、前に添えたものから変わったときだけ添える（古いものが積み重ならないように）
+  def background_block(prospective:, schedules:)
+    body = @prompt_builder.build_dynamic(context: @turn_context, prospective: prospective, schedules: schedules)
+    <<~TEXT.chomp
+      【システムが添えた背景。Userの発言ではない。会話の流れを変えず、必要なときだけ参照する。
+      予定と前向き記憶は、前に添えたものから変わったときだけ添える。添えたものが最新で、前のものは古い】
+      #{body}
+      【背景ここまで】
+    TEXT
+  end
+
+  # 返答を会話の記録に追記したあと、常駐の claude が見た範囲を、いまの履歴の終わりまでに進める
+  def note_persistent_seen
+    return unless @persistent_key && @turn_context
+
+    session = PersistentClaude::Pool.instance.fetch(@persistent_key)
+    return unless session
+
+    all = messages
+    session.seen = {
+      count: all.size, tail: message_digest(all.last),
+      prospective: text_digest(@turn_context[:prospective_memory]), schedules: text_digest(@turn_context[:upcoming_schedules])
+    }
+  end
+
+  def message_digest(message)
+    message && text_digest("#{message[:role]}\u0000#{message[:content]}")
+  end
+
+  def text_digest(text)
+    Digest::SHA256.hexdigest(text.to_s)[0, 16]
+  end
+
   # claude -p は1回ごとに独立して動くので、これまでの会話を書き起こしてプロンプトに入れる。
   # next_step があるときは、ユーザーのメッセージではなく、自分で決めた続きの作業で起こす。
   # event があるときは、ユーザーのメッセージではなく、起きた出来事で起こす
-  def claude_prompt(next_step = nil, event = nil)
+  def claude_prompt(next_step = nil, event = nil, background: nil)
     history = next_step || event ? messages : messages[0...-1]
     lines = []
-    if history.any?
-      lines << "これまでの会話:"
-      history.each do |m|
-        if m[:role] == "user"
-          lines << "User: #{m[:content]}"
-        else
-          # 返答の前にした作業も書き起こす（ファイルの場所やコマンドを、次の返答で調べ直さずに済むように）
-          Array(m[:work]).each { |entry| lines << "（#{llm_role_name}の作業）#{entry}" }
-          lines << "#{llm_role_name}: #{m[:content]}"
-        end
+    lines.concat(background.to_s.lines.map(&:chomp) + [ "" ]) if background.present?
+    lines.concat(history_lines(history, "これまでの会話:"))
+    lines.concat(prompt_tail_lines(next_step, event))
+    lines.join("\n")
+  end
+
+  # 会話の書き起こし。返答の前にした作業も書き起こす（ファイルの場所やコマンドを、次の返答で調べ直さずに済むように）
+  def history_lines(history, heading)
+    return [] if history.empty?
+
+    lines = [ heading ]
+    history.each do |m|
+      if m[:role] == "user"
+        lines << "User: #{m[:content]}"
+      else
+        Array(m[:work]).each { |entry| lines << "（#{llm_role_name}の作業）#{entry}" }
+        lines << "#{llm_role_name}: #{m[:content]}"
       end
-      if history.any? { |m| m[:work].present? }
-        lines << "（#{llm_role_name}の作業）の行は、あなたがその返答の前に実際にしたこと。" \
-          "そこに出てくるファイルの場所やコマンドはそのまま使い、同じ下調べを繰り返さない。"
-      end
-      lines << ""
     end
+    if history.any? { |m| m[:work].present? }
+      lines << "（#{llm_role_name}の作業）の行は、あなたがその返答の前に実際にしたこと。" \
+        "そこに出てくるファイルの場所やコマンドはそのまま使い、同じ下調べを繰り返さない。"
+    end
+    lines << ""
+    lines
+  end
+
+  # プロンプトの末尾: 何で起こされたか（出来事・続きの作業・Userのメッセージ）と、返答の形
+  def prompt_tail_lines(next_step, event)
+    lines = []
     if event
       lines << "Userからの新しいメッセージはない。いま、次の出来事であなたが起こされた:"
       lines << event
@@ -537,8 +642,9 @@ class ChatSession
     lines << "返答の本文は reply に、返答のあとの動きは next_action に書いてください。"
     lines << "返答のあと、裏で走らせた作業が終わった知らせで起こされたときは、分かった結果を reply で報告する。" \
       "新しく伝えることがなければ reply を空にする（返答で言ったことを繰り返さない）。"
-    lines.join("\n")
+    lines
   end
+
 
   def build_usage_tracker
     character = @character
@@ -564,8 +670,9 @@ class ChatSession
 
   # PromptBuilder で生成した system instruction の末尾に、
   # MS のアダプタが渡してきた追加指示を append する。
-  def build_system_instruction(context)
-    base = @prompt_builder.build(context: context, channel: @channel)
+  # @param dynamic [Boolean] false のとき、毎回変わる節（時刻・記憶・予定など）を入れない（常駐の claude は、system prompt を最初に1回しか渡せない）
+  def build_system_instruction(context, dynamic: true)
+    base = @prompt_builder.build(context: context, channel: @channel, dynamic: dynamic)
     plugin_segments = MemoriaServer::Plugin.prompt_segments(@character, scene: :chat)
     claude_segment = use_claude_cli? ? format(CLAUDE_TURN_RULES, full_log_dir: @vault.path_for(MemoriaCore::VaultManager::FL_DIR)) : nil
     [base, plugin_segments, claude_segment, @extra_system_instruction].map(&:to_s).reject(&:empty?).join("\n\n")

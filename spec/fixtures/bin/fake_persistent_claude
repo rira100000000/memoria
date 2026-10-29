@@ -3,7 +3,7 @@
 # 標準入力の user メッセージを1行ずつ読み、assistant 行と result 行を返す。
 # 本文のキーワードで振る舞いを変える: CRASH（何も返さず終了）、SLOW（4秒待つ）、
 # UNSOLICITED（答えのあと、頼まれていない出力をする）、BACKGROUND（裏の作業が残る）、
-# TOOL（MCP のツールを使ったことにして、記録のファイルに1行書く）、PROGRESS（ツールを使う前に一言書く）
+# TOOL（MCP のツールを使ったことにして、記録のファイルに1行書く）、PROGRESS（ツールを使う前に一言書く）、CONTINUE（続きの作業をすると答える）
 require "json"
 $stdin.set_encoding("UTF-8")
 $stdout.set_encoding("UTF-8")
@@ -23,7 +23,9 @@ $stdin.each_line do |line|
   content = message.dig("message", "content").to_s
   n += 1
   File.open(log_path, "a") { |f| f.puts(JSON.generate(n: n, pid: Process.pid, content: content, args: ARGV)) } if log_path
-  if content.include?("CRASH")
+  # FAKE_CRASH_ONCE にファイルを指定すると、そのファイルがあるあいだ1回だけ落ちる（落ちた発言は会話の履歴に残るので、次の起動で落ち直さないため）
+  if content.include?("CRASH") && (ENV["FAKE_CRASH_ONCE"].nil? || File.exist?(ENV["FAKE_CRASH_ONCE"]))
+    File.delete(ENV["FAKE_CRASH_ONCE"]) if ENV["FAKE_CRASH_ONCE"]
     warn "boom"
     exit 3
   end
@@ -41,7 +43,11 @@ $stdin.each_line do |line|
   end
   say(type: "assistant", message: { content: [ { type: "tool_use", id: "t#{n}", name: "StructuredOutput", input: {} } ] })
   say(type: "result", subtype: "success", is_error: false, result: "",
-      structured_output: { reply: "echo#{n}:#{content[0, 30]}", next_action: "wait_for_user", pid: Process.pid, n: n },
+      structured_output: if content.include?("CONTINUE")
+                           { reply: "続けるね", next_action: "continue", next_step: "次の作業", pid: Process.pid, n: n }
+                         else
+                           { reply: "echo#{n}", next_action: "wait_for_user", pid: Process.pid, n: n }
+                         end,
       usage: { input_tokens: 3, cache_read_input_tokens: n * 100, cache_creation_input_tokens: 10 })
   Thread.new { sleep 0.3; say(type: "assistant", message: { content: [ { type: "text", text: "頼まれていない" } ] }) } if content.include?("UNSOLICITED")
 end

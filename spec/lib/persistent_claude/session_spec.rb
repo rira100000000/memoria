@@ -48,7 +48,7 @@ RSpec.describe PersistentClaude::Session do
 
     expect([ first, second, third ].map { |r| r[:structured]["n"] }).to eq([ 1, 2, 3 ])
     expect([ first, second, third ].map { |r| r[:structured]["pid"] }.uniq.size).to eq(1)
-    expect(second[:structured]["reply"]).to eq("echo2:元気？")
+    expect(second[:structured]["reply"]).to eq("echo2")
     expect(session).to be_alive
   end
 
@@ -127,7 +127,7 @@ RSpec.describe PersistentClaude::Session do
 
     parsed, = turn(session, "BACKGROUND", relay: relay)
 
-    expect(parsed[:structured]["reply"]).to start_with("echo1:BACKGROUND")
+    expect(parsed[:structured]["reply"]).to eq("echo1")
     expect(parsed[:followups].map { |f| f[:structured]["reply"] }).to eq([ "後報" ])
     expect(session).to be_retired
     expect(session).not_to be_alive
