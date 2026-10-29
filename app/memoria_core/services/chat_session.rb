@@ -524,7 +524,7 @@ class ChatSession
     {
       record_id: @record.id,
       verify: ->(seen) { persistent_history_ok?(seen) },
-      fresh_prompt: -> { claude_prompt(next_step, event, background: background_block(prospective: true, schedules: true)) },
+      fresh_prompt: -> { claude_prompt(next_step, event, background: background_block(prospective: true, schedules: true, memory: true)) },
       resume_prompt: ->(seen) { persistent_resume_prompt(seen, next_step, event) }
     }
   end
@@ -542,8 +542,9 @@ class ChatSession
     # 最後は、いま届いた User のメッセージ（プロンプトの末尾で渡す）。出来事・続きの作業のときは、全部が知らない発言
     unseen = unseen[0...-1] unless next_step || event
     background = background_block(
-      prospective: text_digest(@turn_context[:prospective_memory]) != seen[:prospective],
-      schedules: text_digest(@turn_context[:upcoming_schedules]) != seen[:schedules]
+      prospective: changed_state(@turn_context[:prospective_memory], seen[:prospective]),
+      schedules: changed_state(@turn_context[:upcoming_schedules], seen[:schedules]),
+      memory: !(next_step || event) # 続きの作業・出来事で起こすときは、同じ記憶を繰り返さない
     )
     lines = background.lines.map(&:chomp) + [ "" ]
     lines.concat(history_lines(unseen, "前に渡した会話のあとに、別の場所であった会話（あなたの返答を含む）:"))
@@ -553,8 +554,8 @@ class ChatSession
 
   # 毎ターン変わる状況（時刻・記憶・予定など）。system prompt の代わりに、user メッセージの先頭に添える。
   # 予定と前向き記憶は、前に添えたものから変わったときだけ添える（古いものが積み重ならないように）
-  def background_block(prospective:, schedules:)
-    body = @prompt_builder.build_dynamic(context: @turn_context, prospective: prospective, schedules: schedules)
+  def background_block(prospective:, schedules:, memory:)
+    body = @prompt_builder.build_dynamic(context: @turn_context, prospective: prospective, schedules: schedules, memory: memory)
     <<~TEXT.chomp
       【システムが添えた背景。Userの発言ではない。会話の流れを変えず、必要なときだけ参照する。
       予定と前向き記憶は、前に添えたものから変わったときだけ添える。添えたものが最新で、前のものは古い】
@@ -575,6 +576,13 @@ class ChatSession
       count: all.size, tail: message_digest(all.last),
       prospective: text_digest(@turn_context[:prospective_memory]), schedules: text_digest(@turn_context[:upcoming_schedules])
     }
+  end
+
+  # 前に添えたものから変わっていれば、添える（true）。空になったのなら、なくなったと伝える（:cleared）。変わっていなければ添えない（false）
+  def changed_state(text, seen_digest)
+    return false if text_digest(text) == seen_digest
+
+    text.to_s.empty? ? :cleared : true
   end
 
   def message_digest(message)

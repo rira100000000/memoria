@@ -14,7 +14,7 @@ module ClaudeCli
       BUILTIN_EVENT_ARGS = %w[query url command file_path path pattern description].freeze
       BUILTIN_RESULT_CHARS = 1000
 
-      attr_reader :command
+      attr_reader :command, :max_turns
 
       def initialize(command:, max_turns:, settings: nil)
         @command = command

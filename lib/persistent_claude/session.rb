@@ -17,14 +17,18 @@ module PersistentClaude
     DIRTY_TYPES = %w[assistant result].freeze
     STDERR_TAIL_BYTES = 8192
 
-    attr_reader :key, :record_id, :dir, :events_path, :long_think_path
+    attr_reader :key, :record_id, :character_id, :platform, :dir, :events_path, :long_think_path
     # { count:, tail:, ... } 常駐の claude が見た会話の範囲（ChatSession が更新する）
     attr_accessor :seen
 
     # @param cmd [Array<String>] claude の起動コマンド（--input-format stream-json を含む）
-    def initialize(key:, record_id:, cmd:, env:, work_dir:, dir:, events_path:, long_think_path: nil)
+    def initialize(key:, record_id:, cmd:, env:, work_dir:, dir:, events_path:, long_think_path: nil, character_id: nil, platform: nil)
       @key = key
       @record_id = record_id
+      @character_id = character_id
+      @platform = platform
+      @claimed = false
+      @settled = false
       @dir = dir
       @events_path = events_path
       @long_think_path = long_think_path
@@ -56,8 +60,17 @@ module PersistentClaude
       !@closed && !@dirty && !@retire && !@eof && @wait_thr.alive?
     end
 
+    # 借り出されてから往復が終わるまで（借り出しと往復の開始のあいだに、見回りや追い出しで閉じられないように）
     def busy?
-      @mutex.synchronize { @turn_active }
+      @mutex.synchronize { @turn_active || @claimed }
+    end
+
+    def claim!
+      @mutex.synchronize { @claimed = true }
+    end
+
+    def unclaim!
+      @mutex.synchronize { @claimed = false }
     end
 
     def idle_seconds
@@ -89,11 +102,13 @@ module PersistentClaude
     def turn(prompt, relay: nil, background: nil, long_think: nil, timeout:, idle_timeout:, poll_interval: 1)
       raise ClaudeCli::Error, "常駐の claude が使えません" unless alive?
 
+      completed = false
       events_from = File.exist?(@events_path) ? File.size(@events_path) : 0
       File.delete(@long_think_path) if @long_think_path && File.exist?(@long_think_path)
       @mutex.synchronize do
         @lines = []
         @answered = false
+        @settled = false
         @sinks = [ relay, background ].compact
         @last_output = now
         @turn_active = true
@@ -103,11 +118,15 @@ module PersistentClaude
 
       stdout = @mutex.synchronize { @lines.join }
       @context_tokens = tokens_of(stdout)
+      completed = true
       { stdout: stdout, stderr: stderr_text, events_from: events_from, context_tokens: @context_tokens }
     ensure
       @mutex.synchronize do
         @turn_active = false
+        @claimed = false
         @sinks = []
+        # 答えを受け取らずに抜けた（例外・スレッドの中断など）。今回の答えが遅れて届くと、次のターンの答えと取り違えるので使い回さない
+        @retire = true unless completed
       end
       @last_used = now
     end
@@ -151,29 +170,39 @@ module PersistentClaude
     end
 
     def handle_line(line)
-      type = line_type(line)
+      message = parse_line(line)
+      type = message && message["type"]
       sinks = nil
       @mutex.synchronize do
         @last_output = now
-        if @turn_active
+        if @turn_active && !@settled
           @lines << line
-          @answered = true if type == "result"
           sinks = @sinks
-        elsif DIRTY_TYPES.include?(type)
-          # ターンの外で動いた（裏の作業の知らせなど）。次のターンの答えと取り違えないよう、使い回さない
+        elsif DIRTY_TYPES.include?(type) || background_started?(message)
+          # ターンの外（または答えが出そろったあと）で動いた。裏の作業の知らせなどで、次のターンの答えと
+          # 取り違えないよう、使い回さない
           @dirty = true
         end
+      end
+      # 途中経過・裏の作業の追跡には、答えを待つ側が起きる前に渡す（先に起きると、裏の作業が残っているのを見落とす）
+      sinks&.each { |sink| sink.feed(line) }
+      @mutex.synchronize do
+        @answered = true if @turn_active && type == "result"
         @cond.broadcast
       end
-      sinks&.each { |sink| sink.feed(line) }
     end
 
-    def line_type(line)
+    def parse_line(line)
       return nil unless line.lstrip.start_with?("{")
 
-      JSON.parse(line)["type"]
+      JSON.parse(line)
     rescue JSON::ParserError
       nil
+    end
+
+    # 裏の作業が走っていることを知らせる行（作業の一覧が空でないもの）
+    def background_started?(message)
+      message && message["type"] == "system" && message["subtype"] == "background_tasks_changed" && Array(message["tasks"]).any?
     end
 
     def send_user_message(prompt)
@@ -194,6 +223,7 @@ module PersistentClaude
         answered, eof, last_output = @mutex.synchronize { [ @answered, @eof, @last_output ] }
         waiting = answered ? (background&.waiting_tasks || []) : []
         if answered && waiting.empty? && !draining
+          @mutex.synchronize { @settled = true }
           return
         elsif answered && !draining
           draining = true
@@ -201,7 +231,10 @@ module PersistentClaude
           close_stdin
         end
         if eof
-          return if answered
+          if answered
+            @mutex.synchronize { @settled = true }
+            return
+          end
 
           raise ClaudeCli::Error, "claude が途中で終了しました（#{stderr_or('出力なし')}）"
         end
@@ -237,6 +270,7 @@ module PersistentClaude
     # 答えが出たあとに時間切れになったとき: 残った作業を止めて、そこまでの出力（答え）を使う
     def stop_after_answer
       @retire = true
+      @mutex.synchronize { @settled = true }
       kill_group
     end
 
@@ -254,15 +288,15 @@ module PersistentClaude
       nil
     end
 
-    # このターンの最後の result 行の usage から、claude が覚えている入力の大きさを出す
+    # claude が覚えている入力の大きさ。そのターンの最後の assistant 行の usage（最後の API 呼び出しの入力）を使う。
+    # result 行の usage は、ツールを何度も使ったターンでは API 呼び出しの合計になり、大きく出すぎる。なければ result 行を使う
     def tokens_of(stdout)
-      usage = stdout.each_line.filter_map { |line| JSON.parse(line) if line.lstrip.start_with?("{") }
-        .select { |m| m["type"] == "result" }.last&.dig("usage")
+      messages = stdout.each_line.filter_map { |line| parse_line(line) }
+      usage = messages.select { |m| m["type"] == "assistant" }.filter_map { |m| m.dig("message", "usage") }.last ||
+        messages.select { |m| m["type"] == "result" }.last&.dig("usage")
       return 0 unless usage.is_a?(Hash)
 
       %w[input_tokens cache_read_input_tokens cache_creation_input_tokens].sum { |name| usage[name].to_i }
-    rescue JSON::ParserError
-      0
     end
 
     def stderr_text

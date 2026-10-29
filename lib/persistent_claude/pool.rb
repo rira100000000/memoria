@@ -23,10 +23,13 @@ module PersistentClaude
       @mutex = Mutex.new
       @reaper = nil
       @at_exit_registered = false
+      @fork_hook_registered = false
     end
 
-    # 使える常駐の claude を返す（なければ nil）。使えなくなったもの（落ちた・汚れた・使い回さない）は、ここで片づける
-    def fetch(key)
+    # 使える常駐の claude を返す（なければ nil）。使えなくなったもの（落ちた・汚れた・使い回さない）は、ここで片づける。
+    # @param claim [Boolean] true なら、同時に使用中の印を立てる（借り出してから往復を始めるまでのあいだに、
+    #   見回りや追い出しで閉じられないように。往復が終わる（または unclaim!）まで続く）
+    def fetch(key, claim: false)
       stale = nil
       session = @mutex.synchronize do
         found = @sessions[key]
@@ -34,6 +37,7 @@ module PersistentClaude
           stale = @sessions.delete(key)
           found = nil
         end
+        found&.claim! if claim
         found
       end
       stale&.close
@@ -49,6 +53,7 @@ module PersistentClaude
       evicted.each(&:close)
       start_reaper
       register_at_exit
+      register_fork_hook
       session
     end
 
@@ -67,8 +72,26 @@ module PersistentClaude
       doomed.each(&:close)
     end
 
+    # 同じキャラクター・プラットフォームの、ほかの会話の記録の常駐を止める（閉じた会話の claude を、無言の停止を待たずに片づける）
+    def release_character(character_id, platform, except_record:)
+      doomed = @mutex.synchronize do
+        @sessions.select do |_key, session|
+          session.character_id == character_id && session.platform == platform && session.record_id != except_record && !session.busy?
+        end.keys.map { |key| @sessions.delete(key) }
+      end
+      doomed.each(&:close)
+    end
+
     def size
       @mutex.synchronize { @sessions.size }
+    end
+
+    # fork した子では、親の claude を持たない（閉じると、親の claude を止めてしまう）
+    def forget
+      @mutex.synchronize do
+        @sessions.clear
+        @reaper = nil
+      end
     end
 
     # 使われなくなったものを止める
@@ -109,6 +132,14 @@ module PersistentClaude
         end
       end
       @reaper.report_on_exception = false
+    end
+
+    def register_fork_hook
+      return if @fork_hook_registered || !defined?(ActiveSupport::ForkTracker)
+
+      @fork_hook_registered = true
+      pool = self
+      ActiveSupport::ForkTracker.after_fork { pool.forget }
     end
 
     def register_at_exit

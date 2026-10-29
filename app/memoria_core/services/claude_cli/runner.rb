@@ -51,7 +51,7 @@ module ClaudeCli
                    codex_home: ENV["CODEX_CLI_HOME"].presence,
                    codex_sandbox: ENV["CODEX_CLI_SANDBOX"].presence,
                    mcp_command: Rails.root.join("bin/memoria_mcp").to_s,
-                   lazy_mcp: ENV.fetch("CLAUDE_CLI_LAZY_MCP", "1") != "0",
+                   lazy_mcp: ENV.fetch("CLAUDE_CLI_LAZY_MCP", "0") == "1",
                    persistent: ClaudeCli.persistent?,
                    max_context: ENV.fetch("CLAUDE_CLI_PERSISTENT_MAX_CONTEXT", DEFAULT_MAX_CONTEXT).to_i)
       @backend =
@@ -77,6 +77,7 @@ module ClaudeCli
       @poll_interval = poll_interval
       @mcp_command = mcp_command
       @lazy_mcp = lazy_mcp
+      @settings = settings
       @persistent = persistent && @backend.is_a?(Backends::Claude)
       @max_context = max_context
     end
@@ -93,7 +94,11 @@ module ClaudeCli
     #   record_id: 会話の記録の id、verify: 常駐の claude が見た範囲（seen）が今の履歴と合っているか、
     #   fresh_prompt: 起動し直したときに渡すプロンプト（会話の全文）、resume_prompt: 使い回すときに渡すプロンプト（見た範囲の続きだけ）
     def run(system_prompt:, prompt:, model:, character: nil, scene: nil, trigger_type: nil, platform: nil, on_progress: nil, json_schema: nil, usage_context: nil, persistence: nil)
-      if persistence && persistent_run?(character, scene, json_schema)
+      if persistence && !persistent_run?(character, scene, json_schema)
+        # ChatSession は常駐のつもりで system prompt から時刻と記憶を抜いている。従来の経路に黙って落とすと、それらがどこにも入らない
+        raise ArgumentError, "persistence was given but this runner cannot keep claude running (CLAUDE_CLI_PERSISTENT, the chat scene and json_schema are required)"
+      end
+      if persistence
         return run_persistent(system_prompt: system_prompt, model: model, character: character, scene: scene, platform: platform,
                               on_progress: on_progress, json_schema: json_schema, persistence: persistence)
       end
@@ -133,19 +138,24 @@ module ClaudeCli
       pool = PersistentClaude::Pool.instance
       builtin = @builtin_tools_by_character.fetch(character.vault_dir_name, @builtin_tools)
       key = persistent_key(persistence[:record_id], character, scene, platform, model, system_prompt, json_schema, builtin)
-      # 同じ会話の、鍵が違うもの（強いモデルへの切り替え・人格などの変更で古くなったもの）は、その場で止める
+      # 同じ会話の、鍵が違うもの（強いモデルへの切り替え・人格などの変更で古くなったもの）は、その場で止める。
+      # 同じキャラクターの、ほかの会話の記録のもの（閉じた会話）も止める
       pool.release_record(persistence[:record_id], except: key)
-      session = pool.fetch(key)
+      pool.release_character(character.id, platform, except_record: persistence[:record_id])
+      session = pool.fetch(key, claim: true)
       if session && !persistence[:verify].call(session.seen)
         pool.discard(session)
         session = nil
       end
       fresh = session.nil?
-      session ||= spawn_persistent(key, persistence[:record_id], system_prompt, model, character, scene, platform, json_schema, builtin)
-      prompt = fresh ? persistence[:fresh_prompt].call : persistence[:resume_prompt].call(session.seen)
-
-      relay = on_progress && @backend.progress_relay(on_progress)
+      session ||= spawn_persistent(key, persistence[:record_id], system_prompt, model, character, scene, platform, json_schema, builtin).tap(&:claim!)
       begin
+        prompt = fresh ? persistence[:fresh_prompt].call : persistence[:resume_prompt].call(session.seen)
+        # 返答を会話の記録に追記し終えるまで（ChatSession が seen を進めるまで）は、見た範囲を空にしておく。
+        # 追記の前に例外が出ても、次のターンの照合が通らず、履歴から起動し直す
+        session.seen = nil
+
+        relay = on_progress && @backend.progress_relay(on_progress)
         out = session.synchronize do
           session.turn(prompt, relay: relay, background: @backend.background_tracker, long_think: LongThink.new(session.long_think_path),
                                timeout: @timeout, idle_timeout: @idle_timeout, poll_interval: @poll_interval)
@@ -154,6 +164,8 @@ module ClaudeCli
       rescue StandardError
         pool.discard(session) # 失敗したら、そのプロセスは使い回さない
         raise
+      ensure
+        session.unclaim!
       end
 
       session.retire! if out[:context_tokens] > @max_context
@@ -170,9 +182,15 @@ module ClaudeCli
     # 常駐の claude の鍵。起動時に固定される値はすべて入れる（変わったら、別のプロセスで履歴から起動し直す）
     def persistent_key(record_id, character, scene, platform, model, system_prompt, json_schema, builtin)
       fingerprint = Digest::SHA256.hexdigest([
-        system_prompt, JSON.generate(json_schema), builtin.join(","), @settings.to_s, @work_dir.to_s, @backend.command
+        system_prompt, JSON.generate(json_schema), builtin.join(","), @settings.to_s, settings_content, @work_dir.to_s,
+        @backend.command, @backend.max_turns
       ].join("\u0000"))[0, 16]
       [ "r#{record_id}", "c#{character.id}", scene, platform, model, fingerprint ].join("|")
+    end
+
+    # 権限の設定ファイルの中身（書き換えたら、別のプロセスで起動し直す）
+    def settings_content
+      @settings && File.exist?(@settings) ? File.read(@settings) : ""
     end
 
     def spawn_persistent(key, record_id, system_prompt, model, character, scene, platform, json_schema, builtin)
@@ -185,7 +203,8 @@ module ClaudeCli
       cmd = @backend.command_line(dir: dir, system_prompt: system_prompt, model: model, mcp_config: config,
                                   builtin: builtin, json_schema: json_schema, persistent: true)
       PersistentClaude::Session.new(key: key, record_id: record_id, cmd: cmd, env: { **@backend.env }, work_dir: work_dir, dir: dir,
-                                    events_path: events_path, long_think_path: long_think.path)
+                                    events_path: events_path, long_think_path: long_think.path,
+                                    character_id: character.id, platform: platform)
     rescue StandardError
       FileUtils.remove_entry(dir) if dir && File.exist?(dir)
       raise

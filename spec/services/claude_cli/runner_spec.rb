@@ -99,6 +99,7 @@ RSpec.describe ClaudeCli::Runner do
         puts JSON.generate(type: "result", subtype: "success", is_error: false, result: "ok")
       RUBY
       scene = opts.delete(:scene) || :chat
+      opts = { lazy_mcp: true }.merge(opts)
       described_class.new(command: path, **opts)
         .run(system_prompt: "S", prompt: "P", character: character, scene: scene, model: "haiku", platform: :discord)
     end
@@ -138,11 +139,15 @@ RSpec.describe ClaudeCli::Runner do
       expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
     end
 
-    it "can be switched off with CLAUDE_CLI_LAZY_MCP=0" do
+    it "is off by default and on with CLAUDE_CLI_LAZY_MCP=1" do
       original = ENV["CLAUDE_CLI_LAZY_MCP"]
-      ENV["CLAUDE_CLI_LAZY_MCP"] = "0"
-      run_chat
+      ENV.delete("CLAUDE_CLI_LAZY_MCP")
+      run_chat(lazy_mcp: described_class.new(command: "x").instance_variable_get(:@lazy_mcp))
       expect(mcp_env).not_to have_key("MEMORIA_MCP_TOOLS")
+
+      ENV["CLAUDE_CLI_LAZY_MCP"] = "1"
+      run_chat(lazy_mcp: described_class.new(command: "x").instance_variable_get(:@lazy_mcp))
+      expect(mcp_env).to have_key("MEMORIA_MCP_TOOLS")
     ensure
       ENV["CLAUDE_CLI_LAZY_MCP"] = original
     end

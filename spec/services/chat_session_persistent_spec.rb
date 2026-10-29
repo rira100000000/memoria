@@ -190,4 +190,42 @@ RSpec.describe ChatSession, "with a persistent claude" do
 
     expect(session_for_request.send(:persistent_claude?)).to be(false)
   end
+
+  it "starts over from the history when the reply was given but could not be stored" do
+    send_message("やあ")
+    calls = 0
+    allow_any_instance_of(ChatSessionRecord).to receive(:append_message).and_wrap_original do |original, *args, **kwargs|
+      calls += 1
+      raise ActiveRecord::StatementInvalid, "database is locked" if args.first == "model" && calls == 2
+      original.call(*args, **kwargs)
+    end
+    expect { send_message("二つ目") }.to raise_error(ActiveRecord::StatementInvalid)
+    allow_any_instance_of(ChatSessionRecord).to receive(:append_message).and_call_original
+
+    send_message("三つ目")
+
+    entries = logged
+    expect(entries.last["content"]).to include("これまでの会話:", "User: 二つ目", "Userの新しいメッセージ:\n三つ目")
+    expect(entries.last["content"]).not_to include("別の場所であった会話")
+    expect(entries.map { |e| e["pid"] }.uniq.size).to eq(2)
+  end
+
+  it "tells the claude that the schedules are gone once they become empty" do
+    schedules = [ "10:00 散歩", "" ].each
+    allow_any_instance_of(described_class).to receive(:build_schedule_context) { schedules.next }
+    send_message("やあ")
+    send_message("元気？")
+
+    expect(logged.first["content"]).to include("10:00 散歩")
+    expect(logged.last["content"]).to include("いまは予定がない", "すべてなくなった")
+  end
+
+  it "does not repeat the memory when the claude carries on with a next step" do
+    send_message("CONTINUE してね")
+
+    entries = logged
+    expect(entries.first["content"]).to include("記憶A")
+    expect(entries.last["content"]).not_to include("記憶A")
+    expect(entries.last["content"]).to include("Current time is")
+  end
 end

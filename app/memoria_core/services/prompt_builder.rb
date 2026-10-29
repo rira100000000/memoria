@@ -121,9 +121,11 @@ class PromptBuilder
   end
 
   # build(dynamic: false) が入れない、毎回変わる節をまとめて作る。
-  # 予定と前向き記憶は、前に渡したものから変わっていないときに省ける（古いものが積み重ならないように）
-  def build_dynamic(context:, prospective: true, schedules: true)
-    [time_section, *dynamic_sections(context, prospective: prospective, schedules: schedules)].join("\n\n")
+  # 予定と前向き記憶は、前に渡したものから変わっていないときに省ける（古いものが積み重ならないように）。
+  # :cleared を渡すと、本文が空でも「いまはない」と伝える（前に渡したものが、なくなったことを知らせる）。
+  # memory: false で、記憶と今日の会話の流れを省く（続きの作業のように、同じ記憶を繰り返すだけのとき）
+  def build_dynamic(context:, prospective: true, schedules: true, memory: true)
+    [time_section, *dynamic_sections(context, prospective: prospective, schedules: schedules, memory: memory)].join("\n\n")
   end
 
   private
@@ -133,16 +135,16 @@ class PromptBuilder
   end
 
   # 今日の会話の流れ・記憶・前向き記憶・予定（build の中で、この順に並ぶ）
-  def dynamic_sections(context, prospective: true, schedules: true)
+  def dynamic_sections(context, prospective: true, schedules: true, memory: true)
     sections = []
 
     # ナラティブサマリー
-    if context[:narrative_summary] && !context[:narrative_summary].empty?
+    if memory && context[:narrative_summary] && !context[:narrative_summary].empty?
       sections << "## 今日の会話の流れ\n#{context[:narrative_summary]}"
     end
 
     # 記憶コンテキスト
-    sections << <<~MEM
+    sections << <<~MEM if memory
       ## 記憶
       以下はあなたの経験から形成された背景知識である。応答の質を高めるための素地として参照せよ。会話の中で言及する必要はない。
       #{context[:retrieved_context]}
@@ -157,6 +159,8 @@ class PromptBuilder
         以下は過去の会話で出たアクションアイテムの一覧である。話題に自然に関連する場合にのみ、さりげなく触れてよい。
         #{context[:prospective_memory]}
       PM
+    elsif prospective == :cleared
+      sections << "## 前向き記憶\nいまはない。前に添えた前向き記憶は、すべてなくなった（済んだか、取り消された）。"
     end
 
     # スケジュール情報
@@ -166,6 +170,8 @@ class PromptBuilder
         以下はあなたの今後の予定である（自分で入れたものと、ユーザーに頼まれたものを含む）。会話の流れで自然に関連する場合は、予定の存在を踏まえて振る舞え。不要になった予定はcancel_scheduleツールでキャンセルできる。「承認待ちの提案」は、ユーザーが承認を明言したらapprove_scheduleツールで有効にできる。
         #{context[:upcoming_schedules]}
       SCHED
+    elsif schedules == :cleared
+      sections << "## あなたの予定\nいまは予定がない。前に添えた予定は、すべてなくなった（済んだか、取り消された）。"
     end
 
     sections

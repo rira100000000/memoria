@@ -9,12 +9,13 @@ RSpec.describe PersistentClaude::Pool do
     FileUtils.remove_entry(dir) if File.exist?(dir)
   end
 
-  def build(key, record_id: 1)
+  def build(key, record_id: 1, character_id: nil, platform: nil)
     session_dir = File.join(dir, key)
     FileUtils.mkdir_p(session_dir)
     PersistentClaude::Session.new(
       key: key, record_id: record_id, cmd: [ Rails.root.join("spec/fixtures/bin/fake_persistent_claude").to_s ], env: {},
-      work_dir: dir, dir: session_dir, events_path: File.join(session_dir, "events.jsonl")
+      work_dir: dir, dir: session_dir, events_path: File.join(session_dir, "events.jsonl"),
+      character_id: character_id, platform: platform
     )
   end
 
@@ -107,5 +108,49 @@ RSpec.describe PersistentClaude::Pool do
 
   it "has one shared instance" do
     expect(described_class.instance).to equal(described_class.instance)
+  end
+
+  it "stops the sessions of other conversation records of the same character and platform" do
+    mine = pool.put(build("mine", record_id: 1, character_id: 3, platform: :discord))
+    closed_conversation = pool.put(build("closed", record_id: 2, character_id: 3, platform: :discord))
+    other_platform = pool.put(build("other-platform", record_id: 3, character_id: 3, platform: :api))
+    other_character = pool.put(build("other-character", record_id: 4, character_id: 9, platform: :discord))
+
+    pool.release_character(3, :discord, except_record: 1)
+
+    expect(pool.fetch("mine")).to equal(mine)
+    expect(closed_conversation).not_to be_alive
+    expect(pool.fetch("other-platform")).to equal(other_platform)
+    expect(pool.fetch("other-character")).to equal(other_character)
+  end
+
+  it "marks a fetched session as in use, so reaping and eviction leave it alone until it is released" do
+    quick = described_class.new(idle_seconds: 0, max_sessions: 1)
+    session = quick.put(build("a"))
+    sleep 0.05
+    quick.fetch("a", claim: true)
+
+    quick.reap
+    quick.put(build("b"))
+
+    expect(session).to be_alive
+    expect(quick.fetch("a")).to equal(session)
+
+    session.unclaim!
+    sleep 0.05
+    quick.reap
+    expect(session).not_to be_alive
+  ensure
+    quick&.shutdown
+  end
+
+  it "lets go of the sessions without closing them after a fork" do
+    session = pool.put(build("a"))
+
+    pool.forget
+
+    expect(pool.size).to eq(0)
+    expect(session).to be_alive
+    session.close
   end
 end

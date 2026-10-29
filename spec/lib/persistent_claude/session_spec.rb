@@ -61,13 +61,14 @@ RSpec.describe PersistentClaude::Session do
     expect(logged.map { |entry| entry["content"] }).to eq(%w[一つ目 二つ目])
   end
 
-  it "reports the size of what claude remembers, from the last result" do
+  it "reports the size of what claude remembers, from the last API call of the turn" do
     session = start
     turn(session, "a")
     _, out = turn(session, "b")
 
-    expect(out[:context_tokens]).to eq(3 + 200 + 10)
-    expect(session.context_tokens).to eq(213)
+    # 最後の assistant 行の usage（そのターンの最後の API 呼び出し）を使う: 1 + 2*10 + 2
+    expect(out[:context_tokens]).to eq(23)
+    expect(session.context_tokens).to eq(23)
   end
 
   it "tells where this turn's tool events start in the events file" do
@@ -160,5 +161,72 @@ RSpec.describe PersistentClaude::Session do
     expect {
       described_class.new(key: "x", record_id: 1, cmd: [ "/nonexistent/claude" ], env: {}, work_dir: dir, dir: File.join(dir, "s"), events_path: events_path)
     }.to raise_error(ClaudeCli::Error, /見つかりません/)
+  end
+
+  it "does not reuse a claude whose turn was cut off before its answer was taken" do
+    session = start
+    thread = Thread.new { session.turn("SLOW", timeout: 20, idle_timeout: 10, poll_interval: 0.05) }
+    sleep 0.4
+    thread.kill
+    thread.join
+
+    expect(session).not_to be_alive
+    expect(session).to be_retired
+  end
+
+  it "does not mix up a late answer with the next turn's answer" do
+    session = start
+    thread = Thread.new { session.turn("SLOW", timeout: 20, idle_timeout: 10, poll_interval: 0.05) }
+    sleep 0.4
+    thread.kill
+    thread.join
+
+    expect { turn(session, "二つ目") }.to raise_error(ClaudeCli::Error)
+  end
+
+  it "waits for background work even when the tracker sees the answer a moment later than the waiting side wakes" do
+    slow_tracker_class = Class.new(ClaudeCli::Backends::Claude::BackgroundTracker) do
+      def feed(line)
+        sleep 0.3 if line.include?('"type":"result"')
+        super
+      end
+    end
+    session = start
+    out = session.turn("BACKGROUND", background: slow_tracker_class.new, timeout: 20, idle_timeout: 10, poll_interval: 0.01)
+    parsed = backend.parse(out[:stdout], out[:stderr], nil)
+
+    expect(session).to be_retired
+    expect(parsed[:followups].map { |f| f[:structured]["reply"] }).to eq([ "後報" ])
+  end
+
+  it "does not reuse a claude that starts background work outside a turn" do
+    session = start
+    turn(session, "BGLATE")
+    expect(session).to be_alive
+
+    sleep 0.6
+
+    expect(session).to be_dirty
+  end
+
+  it "counts as busy from being claimed until its turn ends, so it is not closed in between" do
+    session = start
+    expect(session).not_to be_busy
+
+    session.claim!
+    expect(session).to be_busy
+
+    turn(session, "x")
+    expect(session).not_to be_busy
+  end
+
+  it "remembers which character and platform it belongs to" do
+    session = described_class.new(
+      key: "k", record_id: 1, cmd: [ Rails.root.join("spec/fixtures/bin/fake_persistent_claude").to_s ], env: {}, work_dir: dir,
+      dir: File.join(dir, "session-r1"), events_path: events_path, character_id: 5, platform: :discord
+    )
+    sessions << session
+
+    expect([ session.character_id, session.platform ]).to eq([ 5, :discord ])
   end
 end

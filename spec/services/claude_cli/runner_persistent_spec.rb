@@ -145,7 +145,7 @@ RSpec.describe ClaudeCli::Runner, "keeping claude running" do
   end
 
   it "does not keep a claude that remembers too much, so the next turn starts from the history" do
-    r = runner(max_context: 100)
+    r = runner(max_context: 10)
     result = run(r)
 
     expect(result.session_key).to be_nil
@@ -183,5 +183,51 @@ RSpec.describe ClaudeCli::Runner, "keeping claude running" do
     expect(r.send(:persistent_run?, nil, :chat, schema)).to be_falsey
     expect(r.send(:persistent_run?, character, :chat, nil)).to be_falsey
     expect(described_class.new(command: fake, persistent: false).send(:persistent_run?, character, :chat, schema)).to be_falsey
+  end
+
+  it "empties what the claude is known to have seen until the reply is stored, so a failure before that forces a restart" do
+    r = runner
+    first = run(r)
+    session = pool.fetch(first.session_key)
+    session.seen = { count: 2, tail: "x" }
+
+    second = run(r)
+
+    expect(pool.fetch(second.session_key).seen).to be_nil
+  end
+
+  it "fails loudly when persistence is asked for but this runner cannot keep claude running" do
+    expect {
+      described_class.new(command: fake, persistent: false).run(
+        system_prompt: "S", prompt: "u", model: "haiku", character: character, scene: :chat, platform: :discord,
+        json_schema: schema, persistence: persistence
+      )
+    }.to raise_error(ArgumentError, /persistence was given/)
+  end
+
+  it "starts another claude when the permission settings file changes" do
+    settings = File.join(dir, "settings.json")
+    File.write(settings, '{"permissions":{"allow":[]}}')
+    r = runner(settings: settings)
+    first = run(r)
+
+    File.write(settings, '{"permissions":{"allow":["Bash"]}}')
+    second = run(r)
+
+    expect(second.session_key).not_to eq(first.session_key)
+    expect(pool.size).to eq(1)
+  end
+
+  it "stops the claude of a conversation that was closed once the character talks in a new record" do
+    r = runner
+    first = run(r)
+    old = pool.fetch(first.session_key)
+    other = create(:chat_session_record)
+
+    r.run(system_prompt: "S", prompt: "u", model: "haiku", character: character, scene: :chat, platform: :discord,
+          json_schema: schema, persistence: persistence(record_id: other.id))
+
+    expect(old).not_to be_alive
+    expect(pool.size).to eq(1)
   end
 end

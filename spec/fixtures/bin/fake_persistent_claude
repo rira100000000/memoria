@@ -3,7 +3,7 @@
 # 標準入力の user メッセージを1行ずつ読み、assistant 行と result 行を返す。
 # 本文のキーワードで振る舞いを変える: CRASH（何も返さず終了）、SLOW（4秒待つ）、
 # UNSOLICITED（答えのあと、頼まれていない出力をする）、BACKGROUND（裏の作業が残る）、
-# TOOL（MCP のツールを使ったことにして、記録のファイルに1行書く）、PROGRESS（ツールを使う前に一言書く）、CONTINUE（続きの作業をすると答える）
+# TOOL（MCP のツールを使ったことにして、記録のファイルに1行書く）、PROGRESS（ツールを使う前に一言書く）、CONTINUE（続きの作業をすると答える）、BGLATE（答えのあと、頼まれていない裏の作業の知らせを出す）
 require "json"
 $stdin.set_encoding("UTF-8")
 $stdout.set_encoding("UTF-8")
@@ -41,7 +41,8 @@ $stdin.each_line do |line|
   if content.include?("PROGRESS")
     say(type: "assistant", message: { content: [ { type: "text", text: "調べてみるね" }, { type: "tool_use", id: "p#{n}", name: "WebSearch", input: { query: "x" } } ] })
   end
-  say(type: "assistant", message: { content: [ { type: "tool_use", id: "t#{n}", name: "StructuredOutput", input: {} } ] })
+  say(type: "assistant", message: { content: [ { type: "tool_use", id: "t#{n}", name: "StructuredOutput", input: {} } ],
+                                    usage: { input_tokens: 1, cache_read_input_tokens: n * 10, cache_creation_input_tokens: 2 } })
   say(type: "result", subtype: "success", is_error: false, result: "",
       structured_output: if content.include?("CONTINUE")
                            { reply: "続けるね", next_action: "continue", next_step: "次の作業", pid: Process.pid, n: n }
@@ -50,6 +51,7 @@ $stdin.each_line do |line|
                          end,
       usage: { input_tokens: 3, cache_read_input_tokens: n * 100, cache_creation_input_tokens: 10 })
   Thread.new { sleep 0.3; say(type: "assistant", message: { content: [ { type: "text", text: "頼まれていない" } ] }) } if content.include?("UNSOLICITED")
+  Thread.new { sleep 0.3; say(type: "system", subtype: "background_tasks_changed", tasks: [ { description: "勝手な作業" } ]) } if content.include?("BGLATE")
 end
 
 if background
