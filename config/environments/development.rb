@@ -4,7 +4,9 @@ Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
   # Make code changes take effect immediately without server restart.
-  config.enable_reloading = true
+  # 常駐の claude を持つサーバーは、再読み込みを切る（ストリーミング中の返答があると、再読み込みが全リクエストを止めるため）。
+  # コードの反映は、サーバーの再起動で行う（MEMORIA_NO_RELOAD=1）
+  config.enable_reloading = ENV["MEMORIA_NO_RELOAD"] != "1"
 
   # Do not eager load code on boot.
   config.eager_load = false

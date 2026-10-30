@@ -10,6 +10,9 @@ Rails.application.routes.draw do
       # OpenAI Chat Completions 互換
       post "chat/completions", to: "chat_completions#create"
 
+      # Discord の bot 専用の入口（bot 専用の鍵。端末の鍵・管理キーは通さない）
+      post "discord/reply", to: "discord_replies#create"
+
       # OpenAI Audio API 互換（Stack-chan 等の物理デバイス用）
       post "audio/transcriptions", to: "audio#transcriptions"
       post "audio/speech",         to: "audio#speech"

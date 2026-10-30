@@ -9,6 +9,11 @@ token = ENV.fetch("DISCORD_BOT_TOKEN")
 
 bot = Discordrb::Bot.new(token: token, intents: [:server_messages])
 
+# MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-web。常駐の claude を持つ）に頼む。
+# なければ、これまでどおりこのプロセスの中で作る
+server_url = ENV["MEMORIA_SERVER_URL"].to_s.strip
+server_client = server_url.empty? ? nil : MemoriaServer::DiscordClient.new(base_url: server_url, token: MemoriaServer::DiscordBotToken.current.to_s)
+
 # 応答する相手のDiscordユーザーID（","区切り）。未設定ならチャンネルに書ける全員に応答する。
 # キャラクターに強い権限（ファイルの編集やコマンドの実行）を渡すときは必ず設定する
 allowed_user_ids = ENV["DISCORD_ALLOWED_USER_IDS"].to_s.split(",").map(&:strip).reject(&:empty?)
@@ -48,29 +53,27 @@ bot.message do |event|
       end
     end
 
-    # アダプタに渡す。途中経過（「調べてみるね」など）は返答を待たずに送る
-    MemoriaServer::DiscordRelay.reply(character, message_text, channel_name: "Discord ##{event.channel.name}") do |text, last|
+    # 途中経過（「調べてみるね」など）は返答を待たずに送る
+    deliver = lambda do |text, last|
       typing.kill if last
       send_discord_response(event.channel, text)
     end
+    if server_client
+      server_client.reply(channel_id: channel_id, channel_name: event.channel.name, author_id: event.author.id, text: message_text, &deliver)
+    else
+      MemoriaServer::DiscordRelay.reply(character, message_text, channel_name: "Discord ##{event.channel.name}", &deliver)
+    end
   rescue => e
-    Rails.logger.error("[Discord Bot] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
-    event.respond("⚠️ memoria: 返答できませんでした（#{e.class}: #{e.message.to_s[0, 200]}）")
+    Rails.logger.error("[Discord Bot] Error: #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+    event.respond(MemoriaServer::DiscordClient.failure_text(e))
   ensure
     typing&.kill
   end
 end
 
 def send_discord_response(channel, text)
-  # Discordのメッセージ上限は2000文字
-  if text.length <= 2000
-    channel.send_message(text)
-  else
-    # 長文は分割送信
-    text.scan(/.{1,2000}/m).each do |chunk|
-      channel.send_message(chunk)
-    end
-  end
+  # Discordのメッセージ上限（2000文字）に収まるよう、長文は分割して送る
+  MemoriaServer::DiscordProtocol.split_message(text).each { |chunk| channel.send_message(chunk) }
 end
 
 puts "[Discord Bot] Starting..."

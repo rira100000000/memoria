@@ -41,6 +41,8 @@ module MemoriaServer
             end
           end
           schedule_timeout(session.record)
+        rescue ::ChatSession::TurnBusy => e
+          raise MemoriaServer::Busy, e.message
         end
       end
 
@@ -118,7 +120,9 @@ module MemoriaServer
 
       # 経路（Discord など）は、プラグインがツールを出し分けたり、プロンプトに会話の場所を書いたりするのに使う
       def build_session(character, context = {})
-        ::ChatSession.find_or_create(character, character.user, channel: context[:channel], platform: context[:platform])
+        ::ChatSession.find_or_create(character, character.user, channel: context[:channel], platform: context[:platform]).tap do |session|
+          session.turn_wait = context[:turn_wait] if context[:turn_wait]
+        end
       end
 
       # しばらく話しかけられなければ会話を閉じ、振り返って記憶を整理する。

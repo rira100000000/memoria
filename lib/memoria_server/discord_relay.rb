@@ -7,7 +7,8 @@ module MemoriaServer
 
     # @param channel_name [String] 会話の場所（例: "Discord #general"）。アダプタがプロンプトに使う
     # @yield [String, Boolean] Discord に送るメッセージと、それが最後の返答か。途中経過（「調べてみるね」など）はその場で渡す
-    def reply(character, text, channel_name:)
+    # @param turn_wait [Numeric, nil] 同じキャラクターの別の返答を待つ秒数の上限（nil は既定）
+    def reply(character, text, channel_name:, turn_wait: nil)
       context = {
         character_id: character.id,
         character_name: character.name,
@@ -17,6 +18,7 @@ module MemoriaServer
         history: [],
         client_metadata: {},
         x_memoria: {},
+        turn_wait: turn_wait,
       }
 
       buffer = +""

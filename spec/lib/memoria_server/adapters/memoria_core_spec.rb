@@ -14,6 +14,28 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
     adapter.respond("こんにちは", context: { character_id: character.id }.merge(context)).to_a
   end
 
+  describe "turn_wait and busy" do
+    before do
+      allow(session).to receive(:use_claude_cli?).and_return(true)
+      allow(session).to receive(:turn_wait=)
+    end
+
+    it "passes the wait limit of the request to the session" do
+      allow(session).to receive(:send_message).and_return({ response: "ok", usage: nil })
+      allow(ConversationTimeoutJob).to receive_message_chain(:set, :perform_later)
+
+      respond(turn_wait: 12)
+
+      expect(session).to have_received(:turn_wait=).with(12)
+    end
+
+    it "turns the wait timeout of the session into MemoriaServer::Busy, which the server side can name" do
+      allow(session).to receive(:send_message).and_raise(ChatSession::TurnBusy, "別の返答中")
+
+      expect { respond }.to raise_error(MemoriaServer::Busy, "別の返答中")
+    end
+  end
+
   context "with claude -p" do
     before do
       allow(session).to receive(:use_claude_cli?).and_return(true)

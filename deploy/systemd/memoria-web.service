@@ -1,0 +1,31 @@
+# memoria のサーバー（puma 1プロセス）。会話を作る唯一のプロセスで、常駐の claude をここが持つ。
+# 置き場所: ~/.config/systemd/user/memoria-web.service
+# bot の鍵: ~/.config/memoria/bot-token.env（MEMORIA_BOT_TOKEN=... の1行。chmod 600）。Discord の bot のユニットにも同じファイルを渡す
+[Unit]
+Description=memoria web server (resident claude)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/rira/rira100000000/memoria
+Environment=PATH=/home/rira/.local/bin:/home/rira/.rbenv/shims:/home/rira/.rbenv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RAILS_ENV=development
+Environment=LANG=C.UTF-8
+Environment=TZ=Asia/Tokyo
+Environment=CLAUDE_CLI_COMMAND=/home/rira/.local/bin/claude
+# 1プロセス（Pool が1つ）。スレッドは、返答のストリーミングと順番待ちで埋まらないよう多めに
+Environment=WEB_CONCURRENCY=0
+Environment=RAILS_MAX_THREADS=16
+Environment=MEMORIA_NO_RELOAD=1
+Environment=BIND_HOST=127.0.0.1
+Environment=PORT=3100
+# 常駐の claude は、このサーバーだけが持つ（.env には入れない。jobs・bot には効かせない）
+Environment=CLAUDE_CLI_PERSISTENT=1
+EnvironmentFile=-%h/.config/memoria/bot-token.env
+ExecStart=/home/rira/.rbenv/shims/bundle exec puma -C config/puma.rb
+Restart=on-failure
+RestartSec=10
+# 停止のとき、走っている返答を待ちすぎない（claude は標準入力が閉じると自分で終わる）
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

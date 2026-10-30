@@ -2,6 +2,8 @@
 # DB永続化されたメッセージ履歴を使い、記憶検索→プロンプト構築→LLM呼び出し→ログ記録を統合
 class ChatSession
   attr_reader :character, :chat_logger
+  # 同じキャラクターの別の返答を待つ時間の上限（秒）。nil なら TURN_LOCK_WAIT
+  attr_writer :turn_wait
 
   # ChatSessionRecordから復元 or 新規作成
   def self.find_or_create(character, user, channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)

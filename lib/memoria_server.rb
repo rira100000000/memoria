@@ -1,6 +1,9 @@
 module MemoriaServer
   class Error < StandardError; end
 
+  # 同じキャラクターの別の返答が、待っても終わらなかった（アダプタが、記憶システムの順番待ちの時間切れを、この例外に直す）
+  class Busy < Error; end
+
   # アダプタが respond/utter/action を呼んだ時、キャラクターがどのデバイスにもいない場合に raise
   class NoActiveDevice < Error; end
 
