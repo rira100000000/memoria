@@ -14,7 +14,7 @@ class ConversationTimeoutJob < ApplicationJob
 
     character = record.character
     session = ChatSession.new(character, record: record)
-    reflection = session.reset!
+    reflection = session.reset!(expected_message_count: expected_message_count)
 
     if reflection
       TagProfilingJob.perform_later(character.id, reflection[:file_path])

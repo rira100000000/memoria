@@ -301,7 +301,7 @@ RSpec.describe ChatSession, "with the claude -p backend" do
     end
 
     it "waits until the other turn of the same character ends" do
-      lock_path = Rails.root.join("tmp", "locks", "chat-#{character.id}.lock")
+      lock_path = TurnLock.new(character.id).path
       FileUtils.mkdir_p(File.dirname(lock_path))
       allow(runner).to receive(:run).and_return(structured_reply("こんにちは", "wait_for_user"))
       order = []

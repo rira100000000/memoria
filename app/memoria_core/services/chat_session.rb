@@ -39,8 +39,9 @@ class ChatSession
   # @param extra_response_filter [Proc, nil] LLM 応答テキストを ChatSessionRecord / ChatLogger に
   #   保存する前に通過させるフィルタ。例：sentinel タグ除去で履歴汚染を防ぐ。
   # @param platform [Symbol, nil] 会話の経路（:discord など）。プラグインがツールを出し分けるのに使う
-  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil)
+  def initialize(character, record:, llm_client: nil, trigger_type: "user_message", channel: nil, platform: nil, extra_tools: nil, extra_tool_executor: nil, extra_system_instruction: nil, extra_response_filter: nil, turn_wait: nil)
     @character = character
+    @turn_wait = turn_wait
     @record = record
     @trigger_type = trigger_type
     @channel = channel
@@ -268,7 +269,16 @@ class ChatSession
 
   # チャットリセット（振り返り生成 + セッションクリア）
   # @return [Hash, nil] { file_path:, base_name:, tags:, full_log_path: }
-  def reset!
+  # 返答の途中で閉じて、あとの発言が閉じた記録に入らないよう、返答と同じ順番待ち（ロック）の中で行う。
+  # @param expected_message_count [Integer, nil] 指定したときは、ロックを取ったあとの記録の発言数が
+  #   これと違えば（待っている間に新しい発言があった）、何もせず nil を返す
+  def reset!(expected_message_count: nil)
+    with_turn_lock { reset_locked!(expected_message_count) }
+  end
+
+  def reset_locked!(expected_message_count)
+    return nil if expected_message_count && @record.message_count != expected_message_count
+
     reflection_result = nil
     full_log_path = @record.full_log_path || @chat_logger.current_log_path
 
@@ -314,37 +324,23 @@ class ChatSession
     execute_tool(name, args)
   end
 
-  private :answer_message, :stream_message
+  private :answer_message, :stream_message, :reset_locked!
 
   # 1人のキャラクターは一度に1つのことしか話さない。ユーザーへの返答、出来事への応答、送った連絡の記録を順番に処理する。
   # 同時に動くと、片方がもう片方の発言を知らないまま話し、履歴の保存でもう片方の発言を消すこともある。
   # Discord・ジョブ・API は別のプロセスなので、ファイルロックで並べる
   TURN_LOCK_WAIT = 30.minutes
 
-  class TurnBusy < StandardError; end
+  TurnBusy = TurnLock::Busy
 
   private
 
-  def with_turn_lock
-    held = (Thread.current[:memoria_turn_locks] ||= [])
-    return yield if held.include?(@character.id)  # 同じスレッドの中で入れ子になったとき
-
-    dir = defined?(Rails) ? Rails.root.join("tmp", "locks") : File.join(Dir.tmpdir, "memoria-locks")
-    FileUtils.mkdir_p(dir)
-    File.open(File.join(dir, "chat-#{@character.id}.lock"), File::RDWR | File::CREAT) do |file|
-      deadline = Time.now + TURN_LOCK_WAIT
-      until file.flock(File::LOCK_EX | File::LOCK_NB)
-        raise TurnBusy, "#{@character.name}は別の返答をしていて、#{TURN_LOCK_WAIT.inspect}待っても終わりませんでした" if Time.now > deadline
-        sleep 0.5
-      end
-      held << @character.id
-      begin
-        # 待っている間にほかの発言が足されているかもしれないので、読み直してから話す
-        @record.reload if @record.persisted?
-        yield
-      ensure
-        held.delete(@character.id)
-      end
+  def with_turn_lock(&block)
+    nested = TurnLock.held.include?(@character.id)
+    TurnLock.new(@character.id, label: @character.name, wait: @turn_wait || TURN_LOCK_WAIT).synchronize do
+      # 待っている間にほかの発言が足されているかもしれないので、読み直してから話す
+      @record.reload if !nested && @record.persisted?
+      block.call
     end
   end
 
