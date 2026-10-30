@@ -1,8 +1,8 @@
 # memoria のサーバー（puma 1プロセス）。会話を作る唯一のプロセスで、常駐の claude をここが持つ。
-# 置き場所: ~/.config/systemd/user/memoria-web.service
+# 置き場所: ~/.config/systemd/user/memoria-server.service
 # bot の鍵: ~/.config/memoria/bot-token.env（MEMORIA_BOT_TOKEN=... の1行。chmod 600）。Discord の bot のユニットにも同じファイルを渡す
 [Unit]
-Description=memoria web server (resident claude)
+Description=memoria server (resident claude)
 After=network-online.target
 
 [Service]

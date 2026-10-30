@@ -1,8 +1,8 @@
-# Discord の bot。MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-web）に頼む。外すと、従来どおりこのプロセスの中で返答する。
+# Discord の bot。MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-server）に頼む。外すと、従来どおりこのプロセスの中で返答する。
 # 置き場所: ~/.config/systemd/user/memoria-discord.service
 [Unit]
 Description=memoria Discord bot
-After=network-online.target memoria-web.service
+After=network-online.target memoria-server.service
 
 [Service]
 WorkingDirectory=/home/rira/rira100000000/memoria

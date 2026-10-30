@@ -9,7 +9,7 @@ token = ENV.fetch("DISCORD_BOT_TOKEN")
 
 bot = Discordrb::Bot.new(token: token, intents: [:server_messages])
 
-# MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-web。常駐の claude を持つ）に頼む。
+# MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-server。常駐の claude を持つ）に頼む。
 # なければ、これまでどおりこのプロセスの中で作る
 server_url = ENV["MEMORIA_SERVER_URL"].to_s.strip
 abort "MEMORIA_SERVER_URL が設定されていますが、bot の鍵（MEMORIA_BOT_TOKEN または MEMORIA_BOT_TOKEN_FILE）がありません" if !server_url.empty? && MemoriaServer::DiscordBotToken.current.to_s.empty?
