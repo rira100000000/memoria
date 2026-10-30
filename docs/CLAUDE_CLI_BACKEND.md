@@ -106,14 +106,41 @@ CLAUDE_CLI_PERSISTENT=1                 # 常駐を有効にする（既定: 切
 
 仕組み:
 
-- 会話の記録（ChatSessionRecord）ごとに claude を1本持つ（`lib/persistent_claude/`。Rails の再読み込みの対象外）。鍵は記録の id・モデル・起動時に固定される値の指紋（system prompt・返答の形・ツールの権限・設定ファイルの中身など）。変わったら別の claude で、会話の履歴から起動し直す
+- 会話の記録（ChatSessionRecord）ごとに claude を1本持つ（`lib/persistent_claude/`。Rails の再読み込みの対象外）。キャラクターごと、会話ごとに別のプロセスなので、コンテキストは混ざらない。鍵は記録の id・モデル・起動時に固定される値の指紋（system prompt・返答の形・ツールの権限・設定ファイルの中身など）。変わったら別の claude で、会話の履歴から起動し直す。**経路（Discord かデバイスの API か）は鍵に入れない**（経路が変わっても同じ claude を使う。下の「経路が変わっても1本」）
 - system prompt は起動時に1回しか渡せないので、毎回変わるもの（時刻・記憶・今日の会話の流れ・前向き記憶・予定）は、毎ターンの user メッセージの先頭に「システムが添えた背景」として添える。予定と前向き記憶は、前に添えたものから変わったときだけ（空になったときは「いまはない」と伝える）
 - 最初のターン（と起動し直したとき）は会話の全文を渡し、以降は新しい分だけ渡す。claude が見た範囲は、返答を会話の記録に追記したあとに進める。履歴と合わなくなったら（別のプロセスが書き足した、記録が変わった、追記できなかった）、その claude は捨てて、履歴から起動し直す
 - 次の場合も、その claude は捨てる: 失敗・途中で終わった、強いモデルへの切り替え、裏の作業（run_in_background）が残った、ターンの外で動いた、入力が大きくなりすぎた。同じキャラクターの、閉じた会話の claude も止める
 - 無言が続いたものは止める。プロセスの終了時にすべて止める。親が突然落ちても、claude は標準入力が閉じて終わる
 - 1本あたりのメモリは約230MB（MCP の分は別）。再起動後の最初の返答は、起動のぶん遅い（約4秒）
 
-注意: `.env` に書くと、同じプロセスで動く会話はすべて常駐になる。新クライアントの専用サーバーだけで試すときは、そのプロセスの環境だけに設定する。
+注意: `.env` に書くと、同じプロセスで動く会話はすべて常駐になる。常駐を持たせるプロセス（`memoria-web`）の環境だけに設定する。jobs と Discord の bot には効かせない（ユニットで `CLAUDE_CLI_PERSISTENT=0` を明示すると、`.env` に書かれても無効のまま）。
+
+#### 経路が変わっても1本
+
+1つの会話の記録に claude は1本で、Discord とデバイスの API を行き来しても使い続ける。起動時に固定されるものから経路を外し、毎ターンの背景と、ツールの呼び出し時に伝える。
+
+- **経路（platform・channel）**: system prompt には入れず、毎ターンの背景に「あなたは現在、…を通じて会話しています」と添える（`ConversationRoute`）
+- **返答の形**: 登録されたすべての capability の項目を「なくてもよい」形で持つ（`ReplySchema.for_process`）。付ける項目は、毎ターンの背景で指示する（欲しくないものは「付けない」と伝える）。返してよいのは、そのリクエストが欲しがった項目だけ
+- **ツール**: すべての経路のツールの和集合で起動する（`ClaudeCli::ToolCatalog`）。呼ばれたとき、Runner が毎ターン書く経路のファイル（`MEMORIA_MCP_ROUTE`）を読み、いまの経路で使えるツールだけ実行する（`ToolProvider::RoutedChat`）
+
+### サーバーを1本にする（memoria-web）
+
+常駐した claude は、起動した Rails プロセスの中にしか存在しない。会話を作るプロセスを1本にして、そこだけが claude を持つ。
+
+```
+Discord の bot ─────────┐  POST /api/v1/discord/reply（bot 専用の鍵）
+Windows クライアント ───┼─ HTTP（127.0.0.1）→ memoria-web（puma 1プロセス）→ 常駐の claude（会話の記録ごとに1本）
+（門番 = 試作の専用サーバー）┘  POST /api/v1/chat/completions（端末の鍵）
+```
+
+- ユニット: `deploy/systemd/memoria-web.service`（`WEB_CONCURRENCY=0`・`RAILS_MAX_THREADS=16`・`MEMORIA_NO_RELOAD=1`・`BIND_HOST=127.0.0.1`・`PORT=3100`・`CLAUDE_CLI_PERSISTENT=1`）。コードの反映はサーバーの再起動で行う（再読み込みは切る。ストリーミング中の返答があると、再読み込みが全リクエストを止めるため）
+- Discord の入口は bot 専用の鍵（`MEMORIA_BOT_TOKEN`、または `MEMORIA_BOT_TOKEN_FILE`）だけを通す。端末の鍵・管理キーは通さず、bot の鍵も他の入口では通らない。キャラクターは、bot からは受け取らず、チャンネル ID からサーバーが引く。経路は `discord` に固定し、送り手の許可（`DISCORD_ALLOWED_USER_IDS`）もサーバーで確かめる
+- 返答は Server-Sent Events: `accepted`（順番待ちの前に1回）→ `message`（途中経過と最後の返答）→ `done`（または `error`）。15秒おきに ping。`done` がないまま切れたときは、bot が「途中で切れた」と返す（再送しない。返答は記録されている）。形式は `MemoriaServer::DiscordProtocol`
+- bot は `MEMORIA_SERVER_URL` があればサーバーに頼む。なければ従来どおり、自分のプロセスの中で返答する（戻すときは、この変数を外す）
+- 同じキャラクターの別の返答を待つ上限は、Discord の入口で `DISCORD_TURN_WAIT`（既定 300秒）。超えたら `error`（busy）
+- 順番待ちのロックは、DB の隣（`storage/locks`。`MEMORIA_LOCK_DIR` で変えられる）に置く。作業ツリーが違っても、同じ DB を使うプロセスは同じロックを見る（`TurnLock`）
+- jobs（Solid Queue）は、常駐を使わず、従来どおり自分のプロセスで動く。起こされて話すときも、同じ順番待ちを通り、会話の記録に追記する。サーバーの claude は、次のターンで、足された分を「別の場所であった会話」として受け取る
+- Windows クライアントの試作（門番）は、`memoria-web` が動いていれば会話をそこへ転送し、動いていなければ自分のプロセスの中の Rails で返す（従来どおり）
 
 MCP サーバの Rails の読み込みを最初のツール呼び出しまで遅らせる `CLAUDE_CLI_LAZY_MCP=1`（既定: 切）もある。体感の短縮は小さい（遅いのは Rails の読み込みではなく、claude が MCP を扱う時間）。
 

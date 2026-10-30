@@ -1,0 +1,23 @@
+# Discord の bot。MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-web）に頼む。外すと、従来どおりこのプロセスの中で返答する。
+# 置き場所: ~/.config/systemd/user/memoria-discord.service
+[Unit]
+Description=memoria Discord bot
+After=network-online.target memoria-web.service
+
+[Service]
+WorkingDirectory=/home/rira/rira100000000/memoria
+Environment=PATH=/home/rira/.local/bin:/home/rira/.rbenv/shims:/home/rira/.rbenv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RAILS_ENV=development
+Environment=LANG=C.UTF-8
+Environment=TZ=Asia/Tokyo
+Environment=CLAUDE_CLI_COMMAND=/home/rira/.local/bin/claude
+Environment=MEMORIA_SERVER_URL=http://127.0.0.1:3100
+# bot はサーバーに頼むので、常駐の claude は持たない（.env に書かれても無効のまま）
+Environment=CLAUDE_CLI_PERSISTENT=0
+EnvironmentFile=-%h/.config/memoria/bot-token.env
+ExecStart=/home/rira/.rbenv/shims/bundle exec ruby bin/discord_bot.rb
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

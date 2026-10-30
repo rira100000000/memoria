@@ -1,0 +1,21 @@
+# jobs（Solid Queue）。常駐の claude は持たない（会話の締め・振り返り・起こされて話すのは、従来どおり1回ごとに claude を起動する）。
+# 置き場所: ~/.config/systemd/user/memoria-jobs.service
+[Unit]
+Description=memoria jobs (Solid Queue)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/rira/rira100000000/memoria
+Environment=PATH=/home/rira/.local/bin:/home/rira/.rbenv/shims:/home/rira/.rbenv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RAILS_ENV=development
+Environment=LANG=C.UTF-8
+Environment=TZ=Asia/Tokyo
+Environment=CLAUDE_CLI_COMMAND=/home/rira/.local/bin/claude
+# .env に CLAUDE_CLI_PERSISTENT=1 が書かれても、jobs では常駐にしない（同じ会話の claude が2本になるのを防ぐ）
+Environment=CLAUDE_CLI_PERSISTENT=0
+ExecStart=/home/rira/.rbenv/shims/bundle exec bin/jobs
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

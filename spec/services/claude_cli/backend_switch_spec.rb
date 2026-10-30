@@ -108,3 +108,30 @@ RSpec.describe ClaudeCli, "choosing claude or codex" do
     expect { ClaudeCli::Runner.new(backend: "gemini") }.to raise_error(ArgumentError)
   end
 end
+
+RSpec.describe ClaudeCli, ".persistent?" do
+  def with_env(values)
+    original = values.keys.to_h { |key| [ key, ENV[key] ] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    original.each { |key, value| ENV[key] = value }
+  end
+
+  it "常駐は、claude -p のバックエンドで、CLAUDE_CLI_PERSISTENT=1 のときだけ" do
+    base = { "MEMORIA_AGENT_BACKEND" => "claude_cli", "LLM_CLI_BACKEND" => nil }
+
+    with_env(base.merge("CLAUDE_CLI_PERSISTENT" => "1")) { expect(described_class.persistent?).to be(true) }
+    with_env(base.merge("CLAUDE_CLI_PERSISTENT" => "0")) { expect(described_class.persistent?).to be(false) }
+    with_env(base.merge("CLAUDE_CLI_PERSISTENT" => nil)) { expect(described_class.persistent?).to be(false) }
+  end
+
+  it "Codex と Gemini のバックエンドでは、設定が入っていても常駐にしない" do
+    with_env("MEMORIA_AGENT_BACKEND" => "claude_cli", "LLM_CLI_BACKEND" => "codex", "CLAUDE_CLI_PERSISTENT" => "1") do
+      expect(described_class.persistent?).to be(false)
+    end
+    with_env("MEMORIA_AGENT_BACKEND" => nil, "LLM_CLI_BACKEND" => nil, "CLAUDE_CLI_PERSISTENT" => "1") do
+      expect(described_class.persistent?).to be(false)
+    end
+  end
+end
