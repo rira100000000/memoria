@@ -5,7 +5,7 @@ Description=memoria Discord bot
 After=network-online.target memoria-server.service
 
 [Service]
-WorkingDirectory=/home/rira/rira100000000/memoria
+WorkingDirectory=/home/rira/rira100000000/memoria-server
 Environment=PATH=/home/rira/.local/bin:/home/rira/.rbenv/shims:/home/rira/.rbenv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=RAILS_ENV=development
 Environment=LANG=C.UTF-8
