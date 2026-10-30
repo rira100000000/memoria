@@ -137,23 +137,26 @@ module ClaudeCli
     def run_persistent(system_prompt:, model:, character:, scene:, platform:, on_progress:, json_schema:, persistence:)
       pool = PersistentClaude::Pool.instance
       builtin = @builtin_tools_by_character.fetch(character.vault_dir_name, @builtin_tools)
-      key = persistent_key(persistence[:record_id], character, scene, platform, model, system_prompt, json_schema, builtin)
+      route = persistence[:route] || ConversationRoute.new(platform: platform)
+      key = persistent_key(persistence[:record_id], character, scene, model, system_prompt, json_schema, builtin)
       # 同じ会話の、鍵が違うもの（強いモデルへの切り替え・人格などの変更で古くなったもの）は、その場で止める。
       # 同じキャラクターの、ほかの会話の記録のもの（閉じた会話）も止める
       pool.release_record(persistence[:record_id], except: key)
-      pool.release_character(character.id, platform, except_record: persistence[:record_id])
+      pool.release_character(character.id, except_record: persistence[:record_id])
       session = pool.fetch(key, claim: true)
       if session && !persistence[:verify].call(session.seen)
         pool.discard(session)
         session = nil
       end
       fresh = session.nil?
-      session ||= spawn_persistent(key, persistence[:record_id], system_prompt, model, character, scene, platform, json_schema, builtin).tap(&:claim!)
+      session ||= spawn_persistent(key, persistence[:record_id], system_prompt, model, character, scene, json_schema, builtin).tap(&:claim!)
       begin
         prompt = fresh ? persistence[:fresh_prompt].call : persistence[:resume_prompt].call(session.seen)
         # 返答を会話の記録に追記し終えるまで（ChatSession が seen を進めるまで）は、見た範囲を空にしておく。
         # 追記の前に例外が出ても、次のターンの照合が通らず、履歴から起動し直す
         session.seen = nil
+        # 経路は、常駐のあいだに変わりうる。ツールが呼ばれたときに読めるよう、ターンの前に書く
+        write_route(session.route_path, route)
 
         relay = on_progress && @backend.progress_relay(on_progress)
         out = session.synchronize do
@@ -180,12 +183,13 @@ module ClaudeCli
     end
 
     # 常駐の claude の鍵。起動時に固定される値はすべて入れる（変わったら、別のプロセスで履歴から起動し直す）
-    def persistent_key(record_id, character, scene, platform, model, system_prompt, json_schema, builtin)
+    # 経路（platform・channel）は入れない。1つの会話の記録に1本の claude で、経路は毎ターン伝える（ConversationRoute）
+    def persistent_key(record_id, character, scene, model, system_prompt, json_schema, builtin)
       fingerprint = Digest::SHA256.hexdigest([
         system_prompt, JSON.generate(json_schema), builtin.join(","), @settings.to_s, settings_content, @work_dir.to_s,
         @backend.command, @backend.max_turns
       ].join("\u0000"))[0, 16]
-      [ "r#{record_id}", "c#{character.id}", scene, platform, model, fingerprint ].join("|")
+      [ "r#{record_id}", "c#{character.id}", scene, model, fingerprint ].join("|")
     end
 
     # 権限の設定ファイルの中身（書き換えたら、別のプロセスで起動し直す）
@@ -193,18 +197,20 @@ module ClaudeCli
       @settings && File.exist?(@settings) ? File.read(@settings) : ""
     end
 
-    def spawn_persistent(key, record_id, system_prompt, model, character, scene, platform, json_schema, builtin)
+    def spawn_persistent(key, record_id, system_prompt, model, character, scene, json_schema, builtin)
       dir = Dir.mktmpdir("memoria-claude-persistent")
+      route_path = File.join(dir, "route.json")
+      write_route(route_path, ConversationRoute.new)
       events_path = File.join(dir, "tool_events.jsonl")
       long_think = LongThink.new(File.join(dir, "long_think.json"))
       work_dir = @work_dir || File.join(dir, "work").tap { |path| Dir.mkdir(path) }
-      tools_path = write_tool_list(dir, character, scene, platform, long_think, record_id)
-      config = mcp_config(character, scene, platform, nil, events_path, long_think, nil, tools_path, record_id)
+      tools_path = write_tool_list(dir, character, scene, nil, long_think, record_id, route_path)
+      config = mcp_config(character, scene, nil, nil, events_path, long_think, nil, tools_path, record_id, route_path)
       cmd = @backend.command_line(dir: dir, system_prompt: system_prompt, model: model, mcp_config: config,
                                   builtin: builtin, json_schema: json_schema, persistent: true)
       PersistentClaude::Session.new(key: key, record_id: record_id, cmd: cmd, env: { **@backend.env }, work_dir: work_dir, dir: dir,
                                     events_path: events_path, long_think_path: long_think.path,
-                                    character_id: character.id, platform: platform)
+                                    character_id: character.id, route_path: route_path)
     rescue StandardError
       FileUtils.remove_entry(dir) if dir && File.exist?(dir)
       raise
@@ -213,10 +219,14 @@ module ClaudeCli
     # ツールの一覧を、Rails が読み込み済みのここで作ってファイルに書く。bin/memoria_mcp はこれがあれば、
     # Rails の読み込み（約2.4秒）を最初のツール呼び出しまで遅らせる（lib/lazy_mcp.rb）。
     # 会話の場面だけ（思考ループは、ツールを使うのが普通なので対象にしない）。作れなければ nil（従来どおり最初に読み込む）
-    def write_tool_list(dir, character, scene, platform, long_think, record_id = nil)
+    def write_route(path, route)
+      File.write(path, ConversationRoute.dump(route))
+    end
+
+    def write_tool_list(dir, character, scene, platform, long_think, record_id = nil, route_path = nil)
       return nil unless @lazy_mcp && scene.to_s == "chat"
 
-      provider = ToolProvider.build(character: character, scene: scene, platform: platform, long_think_path: long_think.path, record_id: record_id)
+      provider = ToolProvider.build(character: character, scene: scene, platform: platform, long_think_path: long_think.path, record_id: record_id, route_path: route_path)
       tools = provider.tools.map { |tool| MemoriaServer::Plugin::ToolSchema.gemini_to_json_schema(tool) }
       path = File.join(dir, "tools.json")
       File.write(path, JSON.generate(tools))
@@ -226,7 +236,7 @@ module ClaudeCli
       nil
     end
 
-    def mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context = nil, tools_path = nil, record_id = nil)
+    def mcp_config(character, scene, platform, trigger_type, events_path, long_think, usage_context = nil, tools_path = nil, record_id = nil, route_path = nil)
       args = ["--character", character.id.to_s, "--scene", scene.to_s]
       args += ["--record-id", record_id.to_s] if record_id
       args += ["--trigger", trigger_type] if trigger_type
@@ -234,6 +244,7 @@ module ClaudeCli
       env = { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s }
       env["MEMORIA_MCP_CONTEXT"] = JSON.generate(usage_context) if usage_context.present?
       env["MEMORIA_MCP_TOOLS"] = tools_path if tools_path
+      env["MEMORIA_MCP_ROUTE"] = route_path if route_path
       {
         mcpServers: {
           memoria: {

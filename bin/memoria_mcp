@@ -39,7 +39,8 @@ build_server = lambda do
     platform: options[:platform],
     trigger_type: options[:trigger],
     long_think_path: ENV["MEMORIA_MCP_LONG_THINK"].presence,
-    record_id: options[:record_id]
+    record_id: options[:record_id],
+    route_path: ENV["MEMORIA_MCP_ROUTE"].presence
   )
 
   usage_context = begin

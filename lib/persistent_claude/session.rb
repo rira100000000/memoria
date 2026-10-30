@@ -17,16 +17,16 @@ module PersistentClaude
     DIRTY_TYPES = %w[assistant result].freeze
     STDERR_TAIL_BYTES = 8192
 
-    attr_reader :key, :record_id, :character_id, :platform, :dir, :events_path, :long_think_path
+    attr_reader :key, :record_id, :character_id, :route_path, :dir, :events_path, :long_think_path
     # { count:, tail:, ... } 常駐の claude が見た会話の範囲（ChatSession が更新する）
     attr_accessor :seen
 
     # @param cmd [Array<String>] claude の起動コマンド（--input-format stream-json を含む）
-    def initialize(key:, record_id:, cmd:, env:, work_dir:, dir:, events_path:, long_think_path: nil, character_id: nil, platform: nil)
+    def initialize(key:, record_id:, cmd:, env:, work_dir:, dir:, events_path:, long_think_path: nil, character_id: nil, route_path: nil)
       @key = key
       @record_id = record_id
       @character_id = character_id
-      @platform = platform
+      @route_path = route_path
       @claimed = false
       @settled = false
       @dir = dir

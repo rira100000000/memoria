@@ -230,4 +230,32 @@ RSpec.describe ClaudeCli::Runner, "keeping claude running" do
     expect(old).not_to be_alive
     expect(pool.size).to eq(1)
   end
+
+  it "keeps one claude when the route changes, and writes the current route for the tools before each turn" do
+    r = runner
+    seen_routes = []
+    allow_any_instance_of(PersistentClaude::Session).to receive(:turn).and_wrap_original do |original, *args, **kwargs|
+      seen_routes << ConversationRoute.parse(File.read(original.receiver.route_path))
+      original.call(*args, **kwargs)
+    end
+
+    first = r.run(system_prompt: "S", prompt: "unused", model: "haiku", character: character, scene: :chat, platform: :discord,
+                  json_schema: schema, persistence: persistence(route: ConversationRoute.new(platform: :discord, channel: "Discord #a")))
+    pool.fetch(first.session_key).seen = { count: 2, tail: "x" }
+    second = r.run(system_prompt: "S", prompt: "unused", model: "haiku", character: character, scene: :chat, platform: nil,
+                   json_schema: schema, persistence: persistence(route: ConversationRoute.new(platform: nil, channel: "API")))
+
+    expect(second.session_key).to eq(first.session_key)
+    expect(logged.map { |e| e["pid"] }.uniq.size).to eq(1)
+    expect(seen_routes).to eq([ ConversationRoute.new(platform: :discord, channel: "Discord #a"), ConversationRoute.new(channel: "API") ])
+  end
+
+  it "does not put the route in the key of the claude" do
+    r = runner
+    key_for = ->(route) { r.run(system_prompt: "S", prompt: "u", model: "haiku", character: character, scene: :chat, json_schema: schema, persistence: persistence(route: route)).session_key }
+    a = key_for.call(ConversationRoute.new(platform: :discord, channel: "x"))
+    pool.fetch(a).seen = { count: 2, tail: "x" }
+
+    expect(key_for.call(ConversationRoute.new(platform: nil, channel: "y"))).to eq(a)
+  end
 end

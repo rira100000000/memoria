@@ -228,4 +228,58 @@ RSpec.describe ChatSession, "with a persistent claude" do
     expect(entries.last["content"]).not_to include("記憶A")
     expect(entries.last["content"]).to include("Current time is")
   end
+
+  describe "when the route and the wanted capabilities change between requests" do
+    let(:expression) { MemoriaServer::Capability.find(:expression) }
+
+    def request(text, platform:, channel:, wants: [])
+      session = described_class.new(character, record: record.reload, llm_client: llm_client, platform: platform, channel: channel)
+      session.add_reply_capabilities(wants)
+      session.send_message(text)
+    end
+
+    def schema_of(entry)
+      args = entry["args"]
+      JSON.parse(args[args.index("--json-schema") + 1])
+    end
+
+    it "uses one claude for one conversation record, telling the route and the wanted fields each turn" do
+      request("やあ", platform: :discord, channel: "Discord #general")
+      request("こんにちは", platform: nil, channel: "API", wants: [ expression ])
+
+      first, second = logged
+      expect(second["pid"]).to eq(first["pid"])
+      expect(first["content"]).to include("あなたは現在、Discord #generalを通じて会話しています。", "expression の項目は付けない")
+      expect(second["content"]).to include("あなたは現在、APIを通じて会話しています。", "立ち絵に出す表情と演出")
+      expect(second["content"]).not_to include("expression の項目は付けない")
+    end
+
+    it "keeps the route and the capability instructions out of the system prompt, which stays the same" do
+      request("やあ", platform: :discord, channel: "Discord #general")
+
+      system_prompt = system_prompt_of(logged.first)
+      expect(system_prompt).not_to include("Discord #general", "立ち絵に出す表情と演出")
+    end
+
+    it "starts the claude with a reply shape that has every capability field, none of them required" do
+      request("やあ", platform: :discord, channel: "Discord #general")
+
+      schema = schema_of(logged.first)
+      expect(schema["properties"].keys).to include("reply", "next_action", "expression")
+      expect(schema["required"]).to eq(%w[reply next_action])
+    end
+
+    it "hands back the capability value only for the request that wanted it" do
+      allow_any_instance_of(PersistentClaude::Session).to receive(:turn).and_wrap_original do |original, *args, **kwargs|
+        out = original.call(*args, **kwargs)
+        out.merge(stdout: out[:stdout].gsub('"reply":"echo', '"expression":{"face":"joy","emote":"none"},"reply":"echo'))
+      end
+
+      plain = request("やあ", platform: :discord, channel: "Discord #general")
+      wanted = request("こんにちは", platform: nil, channel: "API", wants: [ expression ])
+
+      expect(plain[:extras]).to eq({})
+      expect(wanted[:extras]).to eq(expression: { face: "joy", emote: "none" })
+    end
+  end
 end

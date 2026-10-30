@@ -9,13 +9,13 @@ RSpec.describe PersistentClaude::Pool do
     FileUtils.remove_entry(dir) if File.exist?(dir)
   end
 
-  def build(key, record_id: 1, character_id: nil, platform: nil)
+  def build(key, record_id: 1, character_id: nil)
     session_dir = File.join(dir, key)
     FileUtils.mkdir_p(session_dir)
     PersistentClaude::Session.new(
       key: key, record_id: record_id, cmd: [ Rails.root.join("spec/fixtures/bin/fake_persistent_claude").to_s ], env: {},
       work_dir: dir, dir: session_dir, events_path: File.join(session_dir, "events.jsonl"),
-      character_id: character_id, platform: platform
+      character_id: character_id
     )
   end
 
@@ -110,17 +110,15 @@ RSpec.describe PersistentClaude::Pool do
     expect(described_class.instance).to equal(described_class.instance)
   end
 
-  it "stops the sessions of other conversation records of the same character and platform" do
-    mine = pool.put(build("mine", record_id: 1, character_id: 3, platform: :discord))
-    closed_conversation = pool.put(build("closed", record_id: 2, character_id: 3, platform: :discord))
-    other_platform = pool.put(build("other-platform", record_id: 3, character_id: 3, platform: :api))
-    other_character = pool.put(build("other-character", record_id: 4, character_id: 9, platform: :discord))
+  it "stops the sessions of other conversation records of the same character, whatever the route" do
+    mine = pool.put(build("mine", record_id: 1, character_id: 3))
+    closed_conversation = pool.put(build("closed", record_id: 2, character_id: 3))
+    other_character = pool.put(build("other-character", record_id: 4, character_id: 9))
 
-    pool.release_character(3, :discord, except_record: 1)
+    pool.release_character(3, except_record: 1)
 
     expect(pool.fetch("mine")).to equal(mine)
     expect(closed_conversation).not_to be_alive
-    expect(pool.fetch("other-platform")).to equal(other_platform)
     expect(pool.fetch("other-character")).to equal(other_character)
   end
 

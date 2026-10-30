@@ -97,6 +97,8 @@ class ChatSession
 
     @reply_capabilities = Array(capabilities).select(&:reply_schema)
     return if @reply_capabilities.empty?
+    # 常駐の claude は system prompt を最初に1回しか渡せないので、指示は毎ターンの背景に添える（background_block）
+    return if persistent_claude?
 
     @extra_system_instruction = [@extra_system_instruction, *@reply_capabilities.map(&:prompt_segment)].map(&:to_s).reject(&:empty?).join("\n\n")
   end
@@ -389,13 +391,12 @@ class ChatSession
   #   work: 最後の返答を書くまでにした作業の記録
   # 返答の構造化出力の形。capability の項目を足していれば、その項目も必須にする
   def reply_schema
-    return REPLY_SCHEMA if @reply_capabilities.blank?
-
-    extra = @reply_capabilities.reduce({}) { |fields, capability| fields.merge(capability.reply_schema) }
-    REPLY_SCHEMA.merge(
-      properties: REPLY_SCHEMA[:properties].merge(extra),
-      required: REPLY_SCHEMA[:required] + extra.keys.map(&:to_s),
-    )
+    if persistent_claude?
+      # 常駐の claude は返答の形が起動時に決まるので、登録されたすべての項目を「なくてもよい」形で持つ。付ける項目は毎ターンの指示で伝える
+      ReplySchema.for_process(base: REPLY_SCHEMA, capabilities: MemoriaServer::Capability.all.select(&:reply_schema))
+    else
+      ReplySchema.for_turn(base: REPLY_SCHEMA, capabilities: Array(@reply_capabilities))
+    end
   end
 
   # 構造化返答から、capability の値を取り出す（取れなかった capability は含めない）
@@ -504,6 +505,11 @@ class ChatSession
   # 常駐の claude が見た会話の範囲（seen）は、返答を会話の記録に追記するたびに覚えさせる。履歴と合わなくなったら
   # （別のプロセスが会話に書き足した、記録が変わった）、その claude は捨てて、履歴から起動し直す。
 
+  # いまのリクエストの経路。会話の記録ごとに1本の常駐 claude に、毎ターン伝える
+  def route
+    ConversationRoute.new(platform: @platform, channel: @channel)
+  end
+
   def persistent_claude?
     use_claude_cli? && ClaudeCli.persistent?
   end
@@ -519,6 +525,7 @@ class ChatSession
 
     {
       record_id: @record.id,
+      route: route,
       verify: ->(seen) { persistent_history_ok?(seen) },
       fresh_prompt: -> { claude_prompt(next_step, event, background: background_block(prospective: true, schedules: true, memory: true)) },
       resume_prompt: ->(seen) { persistent_resume_prompt(seen, next_step, event) }
@@ -551,7 +558,11 @@ class ChatSession
   # 毎ターン変わる状況（時刻・記憶・予定など）。system prompt の代わりに、user メッセージの先頭に添える。
   # 予定と前向き記憶は、前に添えたものから変わったときだけ添える（古いものが積み重ならないように）
   def background_block(prospective:, schedules:, memory:)
-    body = @prompt_builder.build_dynamic(context: @turn_context, prospective: prospective, schedules: schedules, memory: memory)
+    body = @prompt_builder.build_dynamic(
+      context: @turn_context, prospective: prospective, schedules: schedules, memory: memory,
+      route_line: route.line,
+      capability_brief: ReplySchema.brief(wanted: Array(@reply_capabilities), all: MemoriaServer::Capability.all.select(&:reply_schema))
+    )
     <<~TEXT.chomp
       【システムが添えた背景。Userの発言ではない。会話の流れを変えず、必要なときだけ参照する。
       予定と前向き記憶は、前に添えたものから変わったときだけ添える。添えたものが最新で、前のものは古い】
@@ -676,7 +687,8 @@ class ChatSession
   # MS のアダプタが渡してきた追加指示を append する。
   # @param dynamic [Boolean] false のとき、毎回変わる節（時刻・記憶・予定など）を入れない（常駐の claude は、system prompt を最初に1回しか渡せない）
   def build_system_instruction(context, dynamic: true)
-    base = @prompt_builder.build(context: context, channel: @channel, dynamic: dynamic)
+    # 経路（channel）は、常駐の claude では毎ターンの背景で伝える（system prompt を、経路が変わっても使い回せるように）
+    base = @prompt_builder.build(context: context, channel: dynamic ? @channel : nil, dynamic: dynamic)
     plugin_segments = MemoriaServer::Plugin.prompt_segments(@character, scene: :chat)
     claude_segment = use_claude_cli? ? format(CLAUDE_TURN_RULES, full_log_dir: @vault.path_for(MemoriaCore::VaultManager::FL_DIR)) : nil
     [base, plugin_segments, claude_segment, @extra_system_instruction].map(&:to_s).reject(&:empty?).join("\n\n")

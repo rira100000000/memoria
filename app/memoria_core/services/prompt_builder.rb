@@ -124,8 +124,11 @@ class PromptBuilder
   # 予定と前向き記憶は、前に渡したものから変わっていないときに省ける（古いものが積み重ならないように）。
   # :cleared を渡すと、本文が空でも「いまはない」と伝える（前に渡したものが、なくなったことを知らせる）。
   # memory: false で、記憶と今日の会話の流れを省く（続きの作業のように、同じ記憶を繰り返すだけのとき）
-  def build_dynamic(context:, prospective: true, schedules: true, memory: true)
-    [time_section, *dynamic_sections(context, prospective: prospective, schedules: schedules, memory: memory)].join("\n\n")
+  # route_line: いまの会話の経路（ConversationRoute#line）。capability_brief: 今回の返答に付ける項目の指示（ReplySchema.brief）。
+  # どちらも、常駐の claude が経路や欲しい項目の違うリクエストを同じプロセスで受けるために、毎ターン添える
+  def build_dynamic(context:, prospective: true, schedules: true, memory: true, route_line: nil, capability_brief: nil)
+    [time_section, route_line, capability_brief,
+     *dynamic_sections(context, prospective: prospective, schedules: schedules, memory: memory)].reject { |part| part.to_s.empty? }.join("\n\n")
   end
 
   private

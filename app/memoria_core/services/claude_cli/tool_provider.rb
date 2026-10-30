@@ -5,11 +5,11 @@ module ClaudeCli
   module ToolProvider
     # @param record_id [Integer, nil] 会話の場面で、この会話の記録に結びつける（常駐の claude は、起動時の記録のまま長く動くため）。
     #   nil なら、そのときの有効な会話に結びつく
-    def self.build(character:, scene:, platform: nil, trigger_type: nil, long_think_path: nil, record_id: nil)
+    def self.build(character:, scene:, platform: nil, trigger_type: nil, long_think_path: nil, record_id: nil, route_path: nil)
       provider =
         case scene.to_sym
         when :thinking then Thinking.new(character, trigger_type: trigger_type || "thinking_loop")
-        when :chat then Chat.new(character, platform: platform&.to_sym, record_id: record_id)
+        when :chat then route_path ? RoutedChat.new(character, record_id: record_id, route_path: route_path) : Chat.new(character, platform: platform&.to_sym, record_id: record_id)
         else raise ArgumentError, "unknown scene: #{scene}"
         end
       long_think_path ? LongThink::Provider.new(provider, LongThink.new(long_think_path)) : provider
@@ -60,6 +60,43 @@ module ClaudeCli
 
       def call(name, args)
         @session.call_tool(name, args)
+      end
+    end
+
+    # 常駐の claude 用の会話のツール。1つの会話の記録に1本の claude を使い続けるので、経路（platform）が変わる。
+    # ツール一覧は、すべての経路のツールの和集合（起動時に固定）。呼ばれたときに、route_path のファイル
+    # （Runner が毎ターン書く）から、いまの経路を読んで、使えるツールかを確かめて実行する
+    class RoutedChat
+      def initialize(character, record_id:, route_path:)
+        @character = character
+        @record_id = record_id
+        @route_path = route_path
+        @catalog = ToolCatalog.merge(ConversationRoute::PLATFORMS.to_h { |platform| [ platform, definitions(platform) ] })
+      end
+
+      def tools
+        @catalog[:tools]
+      end
+
+      def call(name, args)
+        platform = current_route.platform
+        return { error: "「#{name}」は、いまの経路（#{platform || "API"}）では使えません" } unless ToolCatalog.available?(@catalog[:platforms], name, platform)
+
+        session(platform).call_tool(name, args)
+      end
+
+      private
+
+      def current_route
+        ConversationRoute.parse(File.exist?(@route_path) ? File.read(@route_path, encoding: "utf-8") : nil)
+      end
+
+      def session(platform)
+        ::ChatSession.new(@character, record: ::ChatSessionRecord.find(@record_id), platform: platform)
+      end
+
+      def definitions(platform)
+        session(platform).tool_definitions.flat_map { |t| t[:functionDeclarations] }
       end
     end
   end

@@ -72,11 +72,12 @@ module PersistentClaude
       doomed.each(&:close)
     end
 
-    # 同じキャラクター・プラットフォームの、ほかの会話の記録の常駐を止める（閉じた会話の claude を、無言の停止を待たずに片づける）
-    def release_character(character_id, platform, except_record:)
+    # 同じキャラクターの、ほかの会話の記録の常駐を止める（閉じた会話の claude を、無言の停止を待たずに片づける）。
+    # 経路（Discord など）は区別しない。1つの会話の記録に1本の claude で、経路は毎ターン伝える
+    def release_character(character_id, except_record:)
       doomed = @mutex.synchronize do
         @sessions.select do |_key, session|
-          session.character_id == character_id && session.platform == platform && session.record_id != except_record && !session.busy?
+          session.character_id == character_id && session.record_id != except_record && !session.busy?
         end.keys.map { |key| @sessions.delete(key) }
       end
       doomed.each(&:close)

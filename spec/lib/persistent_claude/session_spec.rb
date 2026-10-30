@@ -220,13 +220,13 @@ RSpec.describe PersistentClaude::Session do
     expect(session).not_to be_busy
   end
 
-  it "remembers which character and platform it belongs to" do
+  it "remembers which character and route file it belongs to" do
     session = described_class.new(
       key: "k", record_id: 1, cmd: [ Rails.root.join("spec/fixtures/bin/fake_persistent_claude").to_s ], env: {}, work_dir: dir,
-      dir: File.join(dir, "session-r1"), events_path: events_path, character_id: 5, platform: :discord
+      dir: File.join(dir, "session-r1"), events_path: events_path, character_id: 5, route_path: File.join(dir, "route.json")
     )
     sessions << session
 
-    expect([ session.character_id, session.platform ]).to eq([ 5, :discord ])
+    expect([ session.character_id, session.route_path ]).to eq([ 5, File.join(dir, "route.json") ])
   end
 end
