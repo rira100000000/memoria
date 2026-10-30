@@ -27,8 +27,17 @@ RSpec.describe ConversationRoute do
       expect(described_class.new(channel: "Discord #general").line).to eq("あなたは現在、Discord #generalを通じて会話しています。")
     end
 
-    it "channel がなければ nil" do
-      expect(described_class.new(platform: :discord).line).to be_nil
+    it "channel がなければ、経路の名前で伝える（nil を返さない）" do
+      expect(described_class.new(platform: :discord).line).to eq("あなたは現在、Discordを通じて会話しています。")
+      expect(described_class.new.line).to eq("あなたは現在、デバイスの APIを通じて会話しています。")
+      expect(described_class.new(platform: :reading).line).to eq("あなたは現在、readingを通じて会話しています。")
+    end
+
+    it "どんな経路でも空にならず、経路が違えば違う文になる" do
+      lines = [ described_class.new, described_class.new(platform: :discord), described_class.new(channel: "x") ].map(&:line)
+
+      expect(lines.map(&:to_s)).to all(match(/を通じて会話しています。\z/))
+      expect(lines.uniq.size).to eq(3)
     end
   end
 

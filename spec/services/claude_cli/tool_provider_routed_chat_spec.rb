@@ -68,6 +68,23 @@ RSpec.describe ClaudeCli::ToolProvider::RoutedChat do
     expect(provider.call("discord_only_t", {})).to have_key(:error)
   end
 
+  it "treats a route outside the known ones by that route's own tools, not by refusing everything" do
+    write_route(:reading)
+
+    expect(provider.call("everywhere_t", {})).to include(ran: "everywhere_t")
+    expect(provider.call("discord_only_t", {})).to have_key(:error)
+  end
+
+  it "builds a ChatSession once per route, however many tools are called" do
+    write_route(:discord)
+    provider
+    allow(::ChatSession).to receive(:new).and_call_original
+
+    3.times { provider.call("everywhere_t", {}) }
+
+    expect(::ChatSession).not_to have_received(:new)
+  end
+
   it "is built by ToolProvider.build when a route file is given, and only then" do
     routed = ClaudeCli::ToolProvider.build(character: character, scene: :chat, record_id: record.id, route_path: route_path)
     plain = ClaudeCli::ToolProvider.build(character: character, scene: :chat, platform: :discord, record_id: record.id)

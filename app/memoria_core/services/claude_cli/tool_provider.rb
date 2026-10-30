@@ -71,6 +71,8 @@ module ClaudeCli
         @character = character
         @record_id = record_id
         @route_path = route_path
+        @sessions = {}
+        @names = {}
         @catalog = ToolCatalog.merge(ConversationRoute::PLATFORMS.to_h { |platform| [ platform, definitions(platform) ] })
       end
 
@@ -80,19 +82,28 @@ module ClaudeCli
 
       def call(name, args)
         platform = current_route.platform
-        return { error: "「#{name}」は、いまの経路（#{platform || "API"}）では使えません" } unless ToolCatalog.available?(@catalog[:platforms], name, platform)
+        return { error: "「#{name}」は、いまの経路（#{platform || "API"}）では使えません" } unless available?(name, platform)
 
         session(platform).call_tool(name, args)
       end
 
       private
 
+      # 知っている経路は、起動時に作った一覧で判定する（純粋: ToolCatalog）。
+      # 知らない経路（プラグインが別の platform で話しかけてくるときなど）は、その経路のツールを作って確かめる
+      def available?(name, platform)
+        return ToolCatalog.available?(@catalog[:platforms], name, platform) if ConversationRoute::PLATFORMS.include?(platform)
+
+        (@names[platform] ||= definitions(platform).map { |tool| tool[:name].to_s }).include?(name.to_s)
+      end
+
       def current_route
         ConversationRoute.parse(File.exist?(@route_path) ? File.read(@route_path, encoding: "utf-8") : nil)
       end
 
+      # ChatSession の準備（記憶の索引や会話ログの読み込み）は重いので、経路ごとに1つを使い回す
       def session(platform)
-        ::ChatSession.new(@character, record: ::ChatSessionRecord.find(@record_id), platform: platform)
+        @sessions[platform] ||= ::ChatSession.new(@character, record: ::ChatSessionRecord.find(@record_id), platform: platform)
       end
 
       def definitions(platform)

@@ -10,6 +10,8 @@ require "json"
 # - 同じ platform と channel なら同じ値（==）
 # - parse(dump(route)) == route（ファイルを介しても変わらない）
 # - parse は、壊れた入力・nil に対して、例外ではなく経路なし（platform nil, channel nil）を返す
+# - line は、どんな経路でも、必ず1行を返す（nil を返さない）。常駐の claude は前のターンの経路を覚えているので、
+#   channel がない経路（デバイスの API など）でも、いまの経路を毎ターン伝えなければならない
 class ConversationRoute
   # memoria が知っている経路。ツールの一覧は、これらすべてのツールの和集合として起動時に作る
   PLATFORMS = [ nil, :discord ].freeze
@@ -35,9 +37,12 @@ class ConversationRoute
     new
   end
 
-  # システムが毎ターン添える、経路の1行（channel がなければ nil）
+  LABELS = { discord: "Discord" }.freeze
+  DEFAULT_LABEL = "デバイスの API".freeze
+
+  # システムが毎ターン添える、経路の1行。channel があればそれ、なければ経路の名前を使う
   def line
-    channel && "あなたは現在、#{channel}を通じて会話しています。"
+    "あなたは現在、#{channel || LABELS.fetch(platform, platform ? platform.to_s : DEFAULT_LABEL)}を通じて会話しています。"
   end
 
   def ==(other)

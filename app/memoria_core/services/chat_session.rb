@@ -405,6 +405,8 @@ class ChatSession
   def reply_extras(answer)
     Array(@reply_capabilities).each_with_object({}) do |capability, extras|
       value = capability.parse_value(answer)
+      # 常駐の claude は項目が「なくてもよい」形なので、欲しがられたのに返ってこないことがある。気づけるよう残す
+      Rails.logger.warn("[ChatSession] the reply did not carry the wanted #{capability.name}") if value.nil? && defined?(Rails)
       extras[capability.name] = value unless value.nil?
     end
   end

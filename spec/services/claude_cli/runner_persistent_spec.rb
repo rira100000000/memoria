@@ -258,4 +258,22 @@ RSpec.describe ClaudeCli::Runner, "keeping claude running" do
 
     expect(key_for.call(ConversationRoute.new(platform: nil, channel: "y"))).to eq(a)
   end
+
+  it "turns the resident claude off inside the MCP process, so that talk_to cannot start a second one" do
+    first = run(runner)
+    session = pool.fetch(first.session_key)
+    config_path = logged.first["args"][logged.first["args"].index("--mcp-config") + 1]
+    config = JSON.parse(File.read(config_path))
+
+    expect(config.dig("mcpServers", "memoria", "env", "CLAUDE_CLI_PERSISTENT")).to eq("0")
+    expect(config.dig("mcpServers", "memoria", "env", "MEMORIA_MCP_ROUTE")).to eq(session.route_path)
+  end
+
+  it "writes the route file in one step, leaving no half-written file" do
+    first = run(runner)
+    session = pool.fetch(first.session_key)
+
+    expect(File.exist?("#{session.route_path}.tmp")).to be(false)
+    expect(ConversationRoute.parse(File.read(session.route_path))).to be_a(ConversationRoute)
+  end
 end

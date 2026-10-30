@@ -12,6 +12,7 @@ bot = Discordrb::Bot.new(token: token, intents: [:server_messages])
 # MEMORIA_SERVER_URL があれば、返答はサーバー（memoria-web。常駐の claude を持つ）に頼む。
 # なければ、これまでどおりこのプロセスの中で作る
 server_url = ENV["MEMORIA_SERVER_URL"].to_s.strip
+abort "MEMORIA_SERVER_URL が設定されていますが、bot の鍵（MEMORIA_BOT_TOKEN または MEMORIA_BOT_TOKEN_FILE）がありません" if !server_url.empty? && MemoriaServer::DiscordBotToken.current.to_s.empty?
 server_client = server_url.empty? ? nil : MemoriaServer::DiscordClient.new(base_url: server_url, token: MemoriaServer::DiscordBotToken.current.to_s)
 
 # 応答する相手のDiscordユーザーID（","区切り）。未設定ならチャンネルに書ける全員に応答する。

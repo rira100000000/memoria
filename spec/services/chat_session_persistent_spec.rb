@@ -254,6 +254,15 @@ RSpec.describe ChatSession, "with a persistent claude" do
       expect(second["content"]).not_to include("expression の項目は付けない")
     end
 
+    it "tells the device route even without a channel, so that the claude does not keep thinking it is on Discord" do
+      request("やあ", platform: :discord, channel: "Discord #general")
+      request("こんにちは", platform: nil, channel: nil)
+
+      second = logged.last
+      expect(second["content"]).to include("あなたは現在、デバイスの APIを通じて会話しています。")
+      expect(second["content"]).not_to include("Discord #general")
+    end
+
     it "keeps the route and the capability instructions out of the system prompt, which stays the same" do
       request("やあ", platform: :discord, channel: "Discord #general")
 
@@ -267,6 +276,15 @@ RSpec.describe ChatSession, "with a persistent claude" do
       schema = schema_of(logged.first)
       expect(schema["properties"].keys).to include("reply", "next_action", "expression")
       expect(schema["required"]).to eq(%w[reply next_action])
+    end
+
+    it "leaves a trace when a wanted capability value did not come back" do
+      allow(Rails.logger).to receive(:warn)
+
+      result = request("こんにちは", platform: nil, channel: nil, wants: [ expression ])
+
+      expect(result[:extras]).to eq({})
+      expect(Rails.logger).to have_received(:warn).with(/did not carry the wanted expression/)
     end
 
     it "hands back the capability value only for the request that wanted it" do

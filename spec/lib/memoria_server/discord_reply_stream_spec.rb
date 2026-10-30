@@ -95,6 +95,33 @@ RSpec.describe MemoriaServer::DiscordReplyStream do
     expect(broken.count).to eq(2)
   end
 
+  it "Live の切断（ClientDisconnected）でも、返答は最後まで作り、以後の書き込みをやめる" do
+    skip "ActionController::Live が読み込まれていない" unless defined?(ActionController::Live::ClientDisconnected)
+    broken = Class.new do
+      attr_reader :count
+
+      def initialize = @count = 0
+
+      def write(_)
+        @count += 1
+        raise ActionController::Live::ClientDisconnected, "client disconnected" if @count > 1
+      end
+    end.new
+    ran_to_end = false
+    relay = Class.new do
+      define_singleton_method(:reply) do |_c, _t, **_o, &block|
+        block.call("1通目", false)
+        block.call("2通目", true)
+        ran_to_end = true
+      end
+    end
+
+    described_class.new(writer: broken, relay: relay).run(character: character, text: "やあ", channel_name: "x")
+
+    expect(ran_to_end).to be(true)
+    expect(broken.count).to eq(2)
+  end
+
   it "複数のスレッドから書いても、1イベントが混ざらない" do
     chunks = []
     io = Class.new do

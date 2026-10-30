@@ -219,8 +219,10 @@ module ClaudeCli
     # ツールの一覧を、Rails が読み込み済みのここで作ってファイルに書く。bin/memoria_mcp はこれがあれば、
     # Rails の読み込み（約2.4秒）を最初のツール呼び出しまで遅らせる（lib/lazy_mcp.rb）。
     # 会話の場面だけ（思考ループは、ツールを使うのが普通なので対象にしない）。作れなければ nil（従来どおり最初に読み込む）
+    # 書きかけを MCP が読まないよう、別のファイルに書いてから置き換える
     def write_route(path, route)
-      File.write(path, ConversationRoute.dump(route))
+      File.write("#{path}.tmp", ConversationRoute.dump(route))
+      File.rename("#{path}.tmp", path)
     end
 
     def write_tool_list(dir, character, scene, platform, long_think, record_id = nil, route_path = nil)
@@ -243,6 +245,8 @@ module ClaudeCli
       args += ["--platform", platform.to_s] if platform
       env = { "MEMORIA_MCP_EVENTS" => events_path, "MEMORIA_MCP_LONG_THINK" => long_think.path, "RAILS_ENV" => Rails.env.to_s }
       env["MEMORIA_MCP_CONTEXT"] = JSON.generate(usage_context) if usage_context.present?
+      # MCP プロセスの中（talk_to など）で、別の常駐 claude が立たないように
+      env["CLAUDE_CLI_PERSISTENT"] = "0"
       env["MEMORIA_MCP_TOOLS"] = tools_path if tools_path
       env["MEMORIA_MCP_ROUTE"] = route_path if route_path
       {

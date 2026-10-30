@@ -38,6 +38,8 @@ module Api
         end
       rescue ActiveRecord::RecordNotFound => e
         render json: error_payload("not_found", e.message), status: :not_found
+      rescue MemoriaServer::Busy => e
+        render json: error_payload("busy", e.message), status: :service_unavailable
       rescue MemoriaServer::Error => e
         render json: error_payload("memoria_server_error", e.message), status: :bad_request
       end

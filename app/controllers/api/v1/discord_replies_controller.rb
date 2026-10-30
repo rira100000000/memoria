@@ -27,7 +27,7 @@ module Api
         response.headers["Cache-Control"] = "no-cache"
         response.headers["X-Accel-Buffering"] = "no"
         MemoriaServer::DiscordReplyStream.new(writer: response.stream)
-          .run(character: character, text: text, channel_name: "Discord ##{params[:channel_name]}", turn_wait: TURN_WAIT)
+          .run(character: character, text: text, channel_name: "Discord ##{MemoriaServer::DiscordProtocol.sanitize_channel_name(params[:channel_name])}", turn_wait: TURN_WAIT)
       ensure
         response.stream.close
       end

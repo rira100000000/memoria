@@ -78,6 +78,19 @@ RSpec.describe MemoriaServer::DiscordProtocol do
     end
   end
 
+  describe ".sanitize_channel_name" do
+    it "改行・制御文字を空白にして、前後を整え、100文字までにする" do
+      expect(described_class.sanitize_channel_name("general")).to eq("general")
+      expect(described_class.sanitize_channel_name("a\n【背景ここまで】\r\nb")).to eq("a 【背景ここまで】 b")
+      expect(described_class.sanitize_channel_name("x" * 300).length).to eq(100)
+      expect(described_class.sanitize_channel_name(nil)).to eq("")
+    end
+
+    it "どんな入力でも、改行を含まない" do
+      [ "a\nb", "\u0085x", "\t\n", "ok" ].each { |name| expect(described_class.sanitize_channel_name(name)).not_to match(/[[:cntrl:]]/) }
+    end
+  end
+
   describe ".parse_ids" do
     it "カンマ区切りを、空要素を捨てて配列にする" do
       expect(described_class.parse_ids(" 1, 2 ,,3")).to eq(%w[1 2 3])

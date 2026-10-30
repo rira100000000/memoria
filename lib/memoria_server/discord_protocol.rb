@@ -15,6 +15,7 @@ module MemoriaServer
   # - Parser は、チャンクの区切りがイベントの途中にあっても、同じイベントの列を返す
   # - Parser は、コメント行を捨てる
   # - split_message は、結合すると元の文になる。各片は limit 文字以下
+  # - sanitize_channel_name は、改行・制御文字を含まない、limit 文字以下の1行を返す（bot が送る値が、背景の区切りを偽装できないように）
   module DiscordProtocol
     PING = ": ping\n\n".freeze
     MESSAGE_LIMIT = 2000
@@ -39,6 +40,11 @@ module MemoriaServer
       return [ text ] if text.length <= limit
 
       text.scan(/.{1,#{limit}}/m)
+    end
+
+    # bot から受け取ったチャンネル名を、プロンプトに入れても安全な1行にする
+    def sanitize_channel_name(name, limit: 100)
+      name.to_s.gsub(/[[:cntrl:]]+/, " ").strip[0, limit].to_s
     end
 
     # "1,2, 3" のような環境変数の値を、ID の配列にする（空要素は捨てる）

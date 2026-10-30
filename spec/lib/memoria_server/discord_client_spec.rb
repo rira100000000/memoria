@@ -64,6 +64,18 @@ RSpec.describe MemoriaServer::DiscordClient do
     expect(texts).to eq([ "途中まで" ])
   end
 
+  it "最後の返答（last: true）を渡したあとで切れても、Interrupted にしない（返答はもう届いている）" do
+    script.push(protocol.encode("accepted"), protocol.encode("message", text: "届いた", last: true))
+
+    expect(reply).to eq([ [ "届いた", true ] ])
+  end
+
+  it "最後の返答の前に切れたら Interrupted" do
+    script.push(protocol.encode("accepted"), protocol.encode("message", text: "途中", last: false))
+
+    expect { reply }.to raise_error(described_class::Interrupted)
+  end
+
   it "何も来ない時間が read_timeout を超えたら Interrupted" do
     script.push(protocol.encode("accepted"), [ :sleep, 1.5 ])
 
