@@ -232,9 +232,9 @@ RSpec.describe ChatSession, "with a persistent claude" do
   describe "when the route and the wanted capabilities change between requests" do
     let(:expression) { MemoriaServer::Capability.find(:expression) }
 
-    def request(text, platform:, channel:, wants: [])
+    def request(text, platform:, channel:, wants: [], device_capabilities: nil)
       session = described_class.new(character, record: record.reload, llm_client: llm_client, platform: platform, channel: channel)
-      session.add_reply_capabilities(wants)
+      session.add_reply_capabilities(wants, device_capabilities: device_capabilities)
       session.send_message(text)
     end
 
@@ -285,6 +285,45 @@ RSpec.describe ChatSession, "with a persistent claude" do
 
       expect(result[:extras]).to eq({})
       expect(Rails.logger).to have_received(:warn).with(/did not carry the wanted expression/)
+    end
+
+    context "when the device registered the expressions it can show" do
+      let(:small_device) { { "expression" => { "faces" => %w[joy], "emotes" => [] } } }
+
+      it "offers the hal only what that device can show, and says the emotes cannot be used" do
+        request("こんにちは", platform: nil, channel: nil, wants: [ expression ], device_capabilities: small_device)
+
+        content = logged.last["content"]
+        expect(content).to include("- joy:", "演出（エモート）は使えません")
+        expect(content).not_to include("- anger:", "joy-clap")
+      end
+
+      it "offers the whole standard vocabulary to a device that has not registered" do
+        request("こんにちは", platform: nil, channel: nil, wants: [ expression ])
+
+        expect(logged.last["content"]).to include("- anger:", "joy-clap")
+      end
+
+      it "changes what is offered when the next request comes from another device, with the same claude" do
+        request("やあ", platform: nil, channel: nil, wants: [ expression ], device_capabilities: small_device)
+        request("こんにちは", platform: nil, channel: nil, wants: [ expression ])
+
+        first, second = logged
+        expect(second["pid"]).to eq(first["pid"])
+        expect(first["content"]).not_to include("- anger:")
+        expect(second["content"]).to include("- anger:")
+      end
+
+      it "hands back only a value that the device can show" do
+        allow_any_instance_of(PersistentClaude::Session).to receive(:turn).and_wrap_original do |original, *args, **kwargs|
+          out = original.call(*args, **kwargs)
+          out.merge(stdout: out[:stdout].gsub('"reply":"echo', '"expression":{"face":"anger","emote":"none"},"reply":"echo'))
+        end
+
+        result = request("こんにちは", platform: nil, channel: nil, wants: [ expression ], device_capabilities: small_device)
+
+        expect(result[:extras]).to eq({})
+      end
     end
 
     it "hands back the capability value only for the request that wanted it" do

@@ -149,5 +149,15 @@ RSpec.describe MemoriaServer::ContextBuilder do
       ctx = described_class.build(character: character, device: device, payload: payload)
       expect(ctx[:x_memoria]).to eq({})
     end
+
+    it "passes the capabilities that the device registered (an empty Hash for no device)" do
+      device.update!(capabilities: { "expression" => { "faces" => %w[neutral joy], "emotes" => [] } })
+
+      with = described_class.build(character: character, device: device, payload: { "messages" => [] })
+      without = described_class.build(character: character, device: nil, payload: { "messages" => [] })
+
+      expect(with[:device_capabilities]).to eq("expression" => { "faces" => %w[neutral joy], "emotes" => [] })
+      expect(without[:device_capabilities]).to eq({})
+    end
   end
 end

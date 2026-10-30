@@ -7,7 +7,7 @@
 # 契約:
 # - for_turn: capabilities が空なら base をそのまま返す。空でなければ、その項目を properties と required に足す
 # - for_process: base の required は変えない。capabilities の項目は properties に足すだけ（required に入れない）
-# - brief: wanted の指示文（prompt_segment）を並べ、wanted でない capability（all のうち）の項目は付けないと伝える。
+# - brief: wanted の指示文（segment が返すもの。既定は prompt_segment）を並べ、wanted でない capability（all のうち）の項目は付けないと伝える。
 #   all が空なら nil
 # - どれも、引数を書き換えず、同じ入力には同じ出力を返す
 module ReplySchema
@@ -30,11 +30,11 @@ module ReplySchema
     base.merge(properties: base[:properties].merge(fields_of(capabilities)))
   end
 
-  def brief(wanted:, all:)
+  def brief(wanted:, all:, segment: :prompt_segment.to_proc)
     return nil if all.empty?
 
     unwanted = all.reject { |capability| wanted.include?(capability) }
-    lines = wanted.map(&:prompt_segment).map(&:to_s).reject(&:empty?)
+    lines = wanted.map(&segment).map(&:to_s).reject(&:empty?)
     lines << "今回の返答には、#{unwanted.map(&:name).join("、")} の項目は付けない。" unless unwanted.empty?
     lines.join("\n\n")
   end

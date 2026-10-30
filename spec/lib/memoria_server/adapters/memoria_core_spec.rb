@@ -14,6 +14,23 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
     adapter.respond("こんにちは", context: { character_id: character.id }.merge(context)).to_a
   end
 
+  describe "device capabilities" do
+    before do
+      allow(session).to receive(:use_claude_cli?).and_return(true)
+      allow(session).to receive(:send_message).and_return({ response: "ok", usage: nil })
+      allow(ConversationTimeoutJob).to receive_message_chain(:set, :perform_later)
+    end
+
+    it "passes the capabilities that the device registered to the session, with the wanted ones" do
+      caps = { "expression" => { "faces" => %w[neutral joy], "emotes" => [] } }
+
+      respond(device_capabilities: caps, x_memoria: { wants: [ "expression" ] })
+
+      expect(session).to have_received(:add_reply_capabilities)
+        .with([ MemoriaServer::Capability.find(:expression) ], device_capabilities: caps)
+    end
+  end
+
   describe "turn_wait and busy" do
     before do
       allow(session).to receive(:use_claude_cli?).and_return(true)
@@ -55,7 +72,8 @@ RSpec.describe MemoriaServer::Adapters::MemoriaCore do
     it "passes the capabilities the client wants to the session" do
       respond(x_memoria: { wants: %w[expression unknown] })
 
-      expect(session).to have_received(:add_reply_capabilities).with([ MemoriaServer::Capability.find(:expression) ])
+      expect(session).to have_received(:add_reply_capabilities)
+        .with([ MemoriaServer::Capability.find(:expression) ], device_capabilities: nil)
     end
 
     it "returns the values the reply came with as x_memoria, before done" do

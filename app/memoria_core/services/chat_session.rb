@@ -94,15 +94,17 @@ class ChatSession
 
   # claude -p の構造化返答に capability の項目（表情など）を足し、使い方の指示を system prompt に加える。
   # セッションはリクエストごとに作るので、足した分はそのリクエストだけに効く。claude -p 以外では何もしない
-  def add_reply_capabilities(capabilities)
+  # @param device_capabilities [Hash, nil] このリクエストの端末が登録した capabilities（出せる表情など）。指示文と返す値を、それに絞る
+  def add_reply_capabilities(capabilities, device_capabilities: nil)
     return unless use_claude_cli?
 
     @reply_capabilities = Array(capabilities).select(&:reply_schema)
+    @device_capabilities = device_capabilities
     return if @reply_capabilities.empty?
     # 常駐の claude は system prompt を最初に1回しか渡せないので、指示は毎ターンの背景に添える（background_block）
     return if persistent_claude?
 
-    @extra_system_instruction = [@extra_system_instruction, *@reply_capabilities.map(&:prompt_segment)].map(&:to_s).reject(&:empty?).join("\n\n")
+    @extra_system_instruction = [@extra_system_instruction, *@reply_capabilities.map { |capability| capability.prompt_segment_for(@device_capabilities) }].map(&:to_s).reject(&:empty?).join("\n\n")
   end
 
   # ユーザーの発言ではない出来事（任せた作業が終わった、予定の時刻になったなど）を、続いている会話の中で受けて話す。
@@ -404,7 +406,7 @@ class ChatSession
   # 構造化返答から、capability の値を取り出す（取れなかった capability は含めない）
   def reply_extras(answer)
     Array(@reply_capabilities).each_with_object({}) do |capability, extras|
-      value = capability.parse_value(answer)
+      value = capability.parse_value(answer, @device_capabilities)
       # 常駐の claude は項目が「なくてもよい」形なので、欲しがられたのに返ってこないことがある。気づけるよう残す
       Rails.logger.warn("[ChatSession] the reply did not carry the wanted #{capability.name}") if value.nil? && defined?(Rails)
       extras[capability.name] = value unless value.nil?
@@ -565,7 +567,8 @@ class ChatSession
     body = @prompt_builder.build_dynamic(
       context: @turn_context, prospective: prospective, schedules: schedules, memory: memory,
       route_line: route.line,
-      capability_brief: ReplySchema.brief(wanted: Array(@reply_capabilities), all: MemoriaServer::Capability.all.select(&:reply_schema))
+      capability_brief: ReplySchema.brief(wanted: Array(@reply_capabilities), all: MemoriaServer::Capability.all.select(&:reply_schema),
+                                          segment: ->(capability) { capability.prompt_segment_for(@device_capabilities) })
     )
     <<~TEXT.chomp
       【システムが添えた背景。Userの発言ではない。会話の流れを変えず、必要なときだけ参照する。

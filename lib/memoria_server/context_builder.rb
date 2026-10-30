@@ -17,6 +17,7 @@ module MemoriaServer
         character_name: character.name,
         device_id: device&.id,
         device_slug: device&.slug,
+        device_capabilities: device&.capabilities || {}, # 端末が登録した capabilities（出せる表情など）
         history: messages,                         # OpenAI形式の messages をそのままパススルー
         current_input: extract_current_input(messages),
         current_input_images: extract_current_input_images(messages),

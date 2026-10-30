@@ -93,6 +93,21 @@ bin/tool_usage --json                              # 集計を JSON で
 - `wants` に入れたときだけ働く。Discord などには影響しない。Gemini のバックエンドでは働かない（値は返らない）
 - 語彙にない `face` は返さず、語彙にない `emote` は `none` にする
 
+#### 端末ごとの語彙（登録）
+
+端末が出せる表情・エモートは、端末ごとに違う（Stack-chan のように、素材の数に限りがある端末もある）。標準の語彙（ID と意味）はサーバーが持ち、端末は、自分が出せる ID だけを登録する。リクエストのたびに送る必要はない。
+
+```
+PUT /api/v1/me/capabilities      端末の鍵。自分の端末の登録だけを変える
+{ "capabilities": { "expression": { "faces": ["joy", "sadness"], "emotes": ["goodbye-wave"] } } }
+GET /api/v1/me/capabilities      いまの登録
+```
+
+- 標準にない ID と重複は落とす（落とした ID は応答の `dropped` に返る）。faces には必ず `neutral` が入る。emotes は空でもよい（演出を使わない端末）。受け付けないキーは `ignored` に返る。形が違うときは 422
+- 登録は `devices.capabilities`（JSON）に保存する。登録していない端末は、標準の語彙すべてを使える（既存のクライアントは変更なしで動く）
+- キャラクターには、毎ターンの背景で、その端末が出せるものだけを伝える。返答の値も、その端末の語彙に絞る（出せない face は返さず、出せない emote は `none`）。同じ会話の claude を、端末が変わっても使い続ける
+- 登録の検証と更新は `MemoriaServer::DeviceCapabilities`、語彙の判断は `Capabilities::Expression`（どちらも純粋関数）
+
 ### 会話のあいだ claude -p を起動したままにする（常駐）
 
 既定では、返答のたびに claude -p を起動し直すため、1往復に約5秒かかる（起動と MCP サーバの接続に約2秒、残りが応答）。`CLAUDE_CLI_PERSISTENT=1` にすると、会話の場面（返答を構造化して返すもの）だけ、claude を `--input-format stream-json` で起動したままにして、1往復を1〜2秒にする。キャッシュも効く。思考ループ・軽い作業・Gemini は従来どおり。

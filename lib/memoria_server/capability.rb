@@ -5,6 +5,9 @@ module MemoriaServer
   #   - name: シンボル識別子（例 :emotion）
   #   - value_format: LLM への形式説明（例 '"happy" | "sad" | ...'）
   #   - value_extractor: LLM が返した JSON Hash から自分の値を取り出す proc
+  #   - prompt_builder: 端末が登録した capabilities（Hash）から指示文を作る proc（任意）。
+  #     端末ごとに使える語彙が違う capability（表情など）が使う。なければ prompt_segment をそのまま使う
+  #   - value_extractor は、引数を2つ（obj, 端末の capabilities）取る proc にすると、端末の登録で値を絞れる
   #   - prompt_segment: capability 固有の system prompt 追記（任意）。複数 capability が
   #     同時に有効なときは join される。指示の重複を避けたい場合は短く書くのがよい。
   #   - reply_schema: claude -p の構造化返答に足す項目（任意。キー => JSON Schema）。
@@ -15,19 +18,28 @@ module MemoriaServer
   class Capability
     attr_reader :name, :value_format, :prompt_segment, :reply_schema
 
-    def initialize(name:, value_format:, value_extractor:, prompt_segment: nil, reply_schema: nil)
+    def initialize(name:, value_format:, value_extractor:, prompt_segment: nil, reply_schema: nil, prompt_builder: nil)
       @name = name.to_sym
       @value_format = value_format
       @value_extractor = value_extractor
       @prompt_segment = prompt_segment
       @reply_schema = reply_schema
+      @prompt_builder = prompt_builder
     end
 
     # @param json_obj [Hash] LLM が `<x_memoria>{...}</x_memoria>` 内に返した JSON Hash（claude -p では構造化返答）
     # @return [Object, nil] 該当値（不正値の場合は nil）
-    def parse_value(json_obj)
+    # @param device_capabilities [Hash, nil] この返答を受け取る端末が登録した capabilities
+    def parse_value(json_obj, device_capabilities = nil)
       return nil unless json_obj.is_a?(Hash)
-      @value_extractor.call(json_obj)
+      return @value_extractor.call(json_obj) if @value_extractor.arity == 1
+
+      @value_extractor.call(json_obj, device_capabilities)
+    end
+
+    # この端末に向けた指示文。端末の登録で変わる capability は prompt_builder で作り、そうでなければ prompt_segment
+    def prompt_segment_for(device_capabilities)
+      @prompt_builder ? @prompt_builder.call(device_capabilities) : @prompt_segment
     end
 
     # --- Registry ---
